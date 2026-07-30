@@ -865,6 +865,7 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260715-corelink"></script>
+<script src="auth-gate.js?v=20260730-corelink-auth"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -877,8 +878,9 @@ function lsGet(key, legacyKey) {
 }
 
 /* Public mode keeps the privacy-safe static Galaxy as the default view. Chief
-   (or any visitor) can click CORE LINK to switch straight to the live private
-   core over the remote tunnel — no code, no login, no bearer token. */
+   can click CORE LINK to switch to the live private core over the remote
+   tunnel — gated by Touch ID / Face ID passkey or an emailed one-time code,
+   see auth-gate.js. */
 (function () {
   const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
   if (isLocal) return;
@@ -947,8 +949,20 @@ function lsGet(key, legacyKey) {
       try {
         const response = await realFetch(remoteCore + '/api/remote/status', {
           headers: { 'Ngrok-Skip-Browser-Warning': '1' },
+          credentials: 'include',
         });
         if (!response.ok) throw new Error('Core unreachable.');
+        const status = await response.json().catch(() => ({}));
+        if (!status.authenticated) {
+          // Core is reachable but the browser has no valid CORE LINK session
+          // yet — gate on Touch ID / Face ID / email code before granting
+          // live tool access. See brainstorms/cortana-biometric-auth.md.
+          if (!window.initAuthGate) throw new Error('Auth gate script did not load.');
+          const ok = await new Promise((resolve) => {
+            window.initAuthGate(() => resolve(true), { fetchImpl: realFetch, base: remoteCore });
+          });
+          if (!ok) throw new Error('Not authenticated.');
+        }
         setCoreState(true);
         window.dispatchEvent(new CustomEvent('cortana:remote-connected'));
         return true;
@@ -1033,7 +1047,7 @@ function lsGet(key, legacyKey) {
     try {
       const headers = new Headers((opts && opts.headers) || {});
       headers.set('Ngrok-Skip-Browser-Warning', '1');
-      const response = await realFetch(remoteCore + u, { ...(opts || {}), headers });
+      const response = await realFetch(remoteCore + u, { ...(opts || {}), headers, credentials: 'include' });
       if (response.ok) setCoreState(true);
       return response;
     } catch (_) {
@@ -2833,7 +2847,7 @@ function tick() {
 setInterval(tick, 10000); tick();
 
 /* Boot */
-window.addEventListener('DOMContentLoaded', () => {
+function bootCortanaApp() {
   initOrb();
   setState('idle');
   initCortanaMotion();
@@ -2881,6 +2895,15 @@ window.addEventListener('DOMContentLoaded', () => {
     };
     setTimeout(applyQaPose, 450);
   }
+}
+window.addEventListener('DOMContentLoaded', () => {
+  // Static github.io preview is intentionally public (sanitized snapshot,
+  // no live tools) — only the Core Link handshake above is gated. Direct
+  // http://localhost:3000 access is refused server-side (server.js, 403
+  // unless CORTANA_ALLOW_LOCAL_UI=1), so this branch is a dev-mode-only
+  // fallback, never the live production gate.
+  if (window.CORTANA_STATIC_MODE) { bootCortanaApp(); return; }
+  if (window.initAuthGate) { window.initAuthGate(bootCortanaApp); } else { bootCortanaApp(); }
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>

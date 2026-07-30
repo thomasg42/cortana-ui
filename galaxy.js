@@ -28,6 +28,7 @@
   let rotationStart = { x: 0, y: 0 };
   let lastInteraction = Date.now();
   let booted = false;
+  let galaxyBackdrop = null;
 
   const hash = (s) => {
     let h = 2166136261;
@@ -41,6 +42,11 @@
   const cssHex = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
 
   function buildChrome() {
+    galaxyBackdrop = document.createElement('div');
+    galaxyBackdrop.id = 'galaxyBackdrop';
+    galaxyBackdrop.setAttribute('aria-hidden', 'true');
+    document.body.prepend(galaxyBackdrop);
+
     const view = document.createElement('div');
     view.id = 'viewSwitch';
     view.innerHTML = '<button class="viewBtn" data-view="core">Core</button><button class="viewBtn" data-view="galaxy">Galaxy</button>';
@@ -642,6 +648,19 @@
     camera.position.lerp(targetCamera, .045);
     lookTarget.lerp(targetLook, .055);
     camera.lookAt(lookTarget);
+    if (galaxyBackdrop) {
+      const distance = camera.position.distanceTo(lookTarget);
+      const depth = Math.max(0, Math.min(1, (distance - 3.2) / 13.8));
+      const bgScale = 1.15 - depth * .12;
+      const bgX = -Math.sin(galaxy.rotation.y) * .65;
+      const bgY = galaxy.rotation.x * .7;
+      galaxyBackdrop.style.setProperty('--galaxy-bg-scale', bgScale.toFixed(4));
+      galaxyBackdrop.style.setProperty('--galaxy-bg-x', `${bgX.toFixed(3)}%`);
+      galaxyBackdrop.style.setProperty('--galaxy-bg-y', `${bgY.toFixed(3)}%`);
+      galaxyBackdrop.style.setProperty('--galaxy-bg-brightness', (.72 + depth * .18).toFixed(3));
+      galaxyBackdrop.style.setProperty('--galaxy-bg-blur', `${(1.25 - depth * .95).toFixed(2)}px`);
+      galaxyBackdrop.style.setProperty('--galaxy-bg-opacity', (.84 + depth * .12).toFixed(3));
+    }
   };
 
   async function init() {

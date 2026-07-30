@@ -48,6 +48,7 @@
   position: absolute;
   inset: 0;
   background:
+    radial-gradient(ellipse 24% 15% at 44% 84%, rgba(1, 7, 8, .98) 0%, rgba(1, 7, 8, .96) 70%, rgba(1, 7, 8, .82) 84%, transparent 100%),
     linear-gradient(90deg, rgba(2, 8, 8, .1), transparent 27%, transparent 66%, rgba(2, 7, 9, .86)),
     radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0, 4, 5, .58) 100%);
 }
@@ -92,53 +93,31 @@ body:not(.galaxy-view) #scanlines::after {
   display: none !important;
 }
 
-/* Ceiling hard-light emitter + rising beam aligned to the deck projector. */
-body:not(.galaxy-view) #holoCeiling {
-  width: min(26vmin, 260px);
-  height: 26vh;
-  opacity: .78;
-}
-
-body:not(.galaxy-view) #holoParticles {
-  bottom: 126px;
-  width: min(34vmin, 320px);
-  height: 50vh;
-  opacity: .95;
-}
-
-body:not(.galaxy-view) #beam {
-  width: min(32vmin, 310px);
-  height: 48vh;
-  bottom: 126px;
-  opacity: .42;
-  mix-blend-mode: screen;
-}
-
+/* The command-deck image owns the environment. Cortana floats freely: no
+   duplicate pedestal, bottom portal, or synthetic beam layered over the art. */
+body:not(.galaxy-view) #holoCeiling,
+body:not(.galaxy-view) #beam,
 body:not(.galaxy-view) #projBase {
-  bottom: 118px;
-  width: 156px;
-  height: 16px;
-  opacity: .72;
+  display: none;
 }
 
-/* Full-body figure centered on the holotank — further back so hands and feet clear. */
+/* Large floating figure shifted left, clear of the right command channel. */
 body:not(.galaxy-view) #cortanaAvatar {
-  left: 50%;
-  top: 8vh;
-  bottom: 22vh;
-  width: min(30vw, 400px);
+  left: 44%;
+  top: 2vh;
+  bottom: 12vh;
+  width: min(36vw, 520px);
   opacity: 1;
   pointer-events: auto;
 }
 
 body:not(.galaxy-view) #cortanaAvatar::before {
-  width: min(30vw, 360px);
-  opacity: .36;
+  width: min(35vw, 500px);
+  opacity: .3;
 }
 
 body:not(.galaxy-view) #cortanaAvatar::after {
-  width: min(16vw, 200px);
-  opacity: .7;
+  display: none;
 }
 
 /* All command copy lives in one calm right-side column. */
@@ -294,13 +273,7 @@ body:not(.galaxy-view) .msg.thomas {
   background: rgba(58, 161, 137, .12);
 }
 
-body:not(.galaxy-view) #switchRow {
-  justify-content: flex-end;
-}
-
-body:not(.galaxy-view) .mpill,
-body:not(.galaxy-view) .epill {
-  padding: 4px 7px;
+body:not(.galaxy-view) #llmStatus {
   background: rgba(3, 14, 15, .78);
   border-radius: 2px;
   font-size: 8px;
@@ -449,7 +422,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: 260px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 49%; width: min(30vw, 360px); top: 11vh; bottom: 25vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 43%; width: min(35vw, 455px); top: 4vh; bottom: 15vh; }
   body:not(.galaxy-view) #holoField { bottom: 158px; }
   body:not(.galaxy-view) .holoCard:nth-child(n + 3) { display: none; }
 }
@@ -472,7 +445,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: auto; right: 12px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 48%; width: min(32vw, 320px); top: 12vh; bottom: 26vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 41.5%; width: min(38vw, 380px); top: 6vh; bottom: 18vh; }
   #missionDoctrine { min-height: 138px; }
   #missionDoctrine strong { font-size: 11px; }
 }
@@ -530,17 +503,13 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #cortanaAvatar {
-    left: 50%;
-    top: 14vh;
-    bottom: 28vh;
-    width: min(56vw, 300px);
+    left: 48%;
+    top: 12vh;
+    bottom: 25vh;
+    width: min(62vw, 340px);
   }
 
-  body:not(.galaxy-view) #cortanaAvatar::before { width: min(52vw, 280px); }
-  body:not(.galaxy-view) #beam { bottom: 132px; height: 42vh; }
-  body:not(.galaxy-view) #projBase { bottom: 124px; }
-  body:not(.galaxy-view) #holoParticles { bottom: 132px; height: 44vh; }
-  body:not(.galaxy-view) #holoCeiling { height: 18vh; }
+  body:not(.galaxy-view) #cortanaAvatar::before { width: min(60vw, 330px); }
 
   body:not(.galaxy-view) #orbStatus {
     top: 126px;
@@ -570,14 +539,10 @@ body:not(.galaxy-view) #filePreview {
     max-height: 16vh;
   }
 
-  body:not(.galaxy-view) #switchRow {
-    justify-content: flex-start;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+  body:not(.galaxy-view) #llmStatus {
+    white-space: nowrap;
+    overflow: hidden;
   }
-
-  body:not(.galaxy-view) #switchRow::-webkit-scrollbar { display: none; }
 
   body:not(.galaxy-view) #vaultToggle,
   body:not(.galaxy-view) #sysToggle,

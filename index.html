@@ -311,12 +311,6 @@
     box-shadow: 0 0 28px rgba(110,216,255,0.55), 0 0 80px rgba(70,180,255,0.3);
     animation: beamflicker 4.6s infinite;
   }
-  /* Chunky voxel particles rising through the beam — each pixel readable. */
-  #holoParticles {
-    position: fixed; left: 50%; bottom: 118px; transform: translateX(-50%);
-    width: min(36vmin, 340px); height: 54vh; z-index: 2; pointer-events: none;
-    mix-blend-mode: screen; opacity: .92;
-  }
   @keyframes beamflicker {
     0%, 100% { opacity: .95; }
     7% { opacity: .78; } 9% { opacity: 1; }
@@ -573,28 +567,28 @@
   @keyframes micpulse { 0%,100% { box-shadow: 0 0 4px rgba(75,255,168,.4); } 50% { box-shadow: 0 0 16px rgba(75,255,168,.7); } }
   #tts.off { color: var(--muted); }
 
-  /* ===== Model switchboard ===== */
-  #switchRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 2px; }
-  #modelPills, #effortPills { display: contents; }
-  .swLabel { font-size: 9px; letter-spacing: .28em; color: var(--muted); text-transform: uppercase; }
-  .mpill, .epill {
-    font-family: inherit; background: var(--panel); border: 1px solid var(--line); color: var(--muted);
-    border-radius: 3px; padding: 4px 9px; font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
-    cursor: pointer; backdrop-filter: blur(8px); transition: color .15s, border-color .15s, box-shadow .15s;
+  /* ===== Active LLM readout ===== */
+  #llmStatus {
+    display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 4px 9px;
+    border: 1px solid var(--line); border-radius: 3px;
+    background: rgba(4, 17, 16, .76); color: var(--muted);
+    font: 9px/1.25 "SF Mono", Menlo, monospace; letter-spacing: .12em;
+    text-transform: uppercase; backdrop-filter: blur(8px);
   }
-  .mpill:hover:not(:disabled), .epill:hover:not(:disabled) { border-color: var(--arc); color: var(--ink); }
-  .mpill.sel { color: var(--arc); border-color: var(--arc); box-shadow: 0 0 10px var(--arc-dim); text-shadow: 0 0 8px var(--arc-dim); }
-  .mpill.sel.auto { color: var(--gold); border-color: rgba(255,196,46,.6); box-shadow: 0 0 10px rgba(255,196,46,.25); text-shadow: 0 0 8px rgba(255,196,46,.35); }
-  .epill.sel { color: var(--gold); border-color: rgba(255,196,46,.6); box-shadow: 0 0 10px rgba(255,196,46,.25); }
-  .mpill:disabled { opacity: .3; cursor: default; text-decoration: line-through; }
-  #switchRow .divider { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+  #llmStatus .llmDot {
+    width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%;
+    background: var(--muted); box-shadow: 0 0 8px rgba(151,198,188,.25);
+  }
+  #llmStatus.live .llmDot { background: var(--arc); box-shadow: 0 0 10px var(--arc); }
+  #activeLlm { color: var(--ink); font-weight: 600; letter-spacing: .08em; }
+  #activeBrain { margin-left: auto; color: var(--gold); letter-spacing: .08em; text-align: right; }
 
   /* Routing badge on Cortana replies */
   .routeTag {
     display: block; font-size: 9px; letter-spacing: .22em; text-transform: uppercase;
     color: var(--gold); opacity: .8; margin-bottom: 5px;
   }
-  .routeTag .rr { color: var(--muted); letter-spacing: .06em; text-transform: none; }
+  .routeTag .brainTag { color: var(--muted); letter-spacing: .08em; }
 
   /* ===== Systems panel (capabilities + dos/don'ts) ===== */
   #sysToggle {
@@ -656,7 +650,8 @@
     #sysPanel { width: 86vw; }
     #sysToggle { left: 96px; }
     #coreConnect { left: 184px; padding-left: 9px; padding-right: 9px; }
-    #switchRow .swLabel { display: none; }
+    #llmStatus { font-size: 7px; gap: 6px; }
+    #activeBrain { max-width: 44%; }
     #filePreview { left: 8px; right: 8px; width: auto; }
     header h1 { letter-spacing: 0.3em; font-size: 14px; }
     #holoField { display: none; }
@@ -666,7 +661,6 @@
     #cortanaAvatar { top: 12vh; bottom: 26vh; width: min(58vw, 320px); opacity: .95; }
     #cortanaAvatar::before { width: min(54vw, 300px); }
     #cortanaAvatar::after { width: min(36vw, 200px); }
-    #holoParticles { bottom: 128px; height: 44vh; }
     #holoCeiling { height: 18vh; }
     #orbStatus { bottom: 134px; }
   }
@@ -681,7 +675,6 @@
 <div id="holoCeiling" aria-hidden="true"></div>
 <div id="beam"></div>
 <div id="projBase"></div>
-<canvas id="holoParticles" aria-hidden="true"></canvas>
 <div id="cortanaAvatar" class="state-idle" data-viseme="rest" aria-hidden="true">
   <div class="cortanaBody">
     <!-- Core visual is the static cortana-hologram.png until the 3D GLB model is ready.
@@ -793,14 +786,14 @@
     <strong>PROTECT THE MISSION.<br />PROTECT THE PEOPLE.<br /><em>WE FINISH THE FIGHT.</em></strong>
   </div>
 </aside>
-<aside id="missionDoctrine" aria-label="Cortana mission doctrine">
-  <span class="doctrineKicker">Cortana Core // Mission Doctrine</span>
+<aside id="missionDoctrine" aria-label="Cortana prime directive">
+  <span class="doctrineKicker">Cortana Core // Prime Directive</span>
   <strong>
-    <span>Protect the mission.</span>
-    <span>Protect the people.</span>
-    <span class="finish">Finish the fight.</span>
+    <span>See the whole field.</span>
+    <span>Tell Chief the truth.</span>
+    <span class="finish">Own the outcome.</span>
   </strong>
-  <span class="doctrineFooter">Focus // Courage // Completion</span>
+  <span class="doctrineFooter">Intelligence // Judgment // Initiative</span>
 </aside>
 <canvas id="orbCanvas"></canvas>
 <div id="hudGrid"></div>
@@ -822,7 +815,7 @@
   <button id="coreConnect" type="button">◈ Core Link</button>
   <button id="opsToggle">◈ Ops</button>
 <div id="sysPanel">
-  <div class="vhead">Systems — Capabilities &amp; Switchboard</div>
+  <div class="vhead">Systems — Capabilities &amp; LLM Status</div>
   <div id="sysBody"><div class="msg system">Loading…</div></div>
 </div>
 <div id="opsDock"><div class="ohead">Priority Ops</div></div>
@@ -843,12 +836,10 @@
 <div id="chatWrap">
   <div id="log"></div>
   <div id="contextChips"></div>
-  <div id="switchRow">
-    <span class="swLabel">Model</span>
-    <span id="modelPills"></span>
-    <span class="divider"></span>
-    <span class="swLabel">Effort</span>
-    <span id="effortPills"></span>
+  <div id="llmStatus" aria-live="polite">
+    <span class="llmDot" aria-hidden="true"></span>
+    <span id="activeLlm">No LLM active</span>
+    <span id="activeBrain">FGA Ops Brain // Obsidian ready</span>
   </div>
   <form id="bar">
     <textarea id="input" rows="1" placeholder="Talk to Cortana…"></textarea>
@@ -970,10 +961,10 @@ function lsGet(key, legacyKey) {
         providers: [
           ['claude', 'Claude Sonnet', 'claude-sonnet-5', ['claude-sonnet-5'], true, 'Default operating lane'],
           ['haiku', 'Claude Haiku', 'claude-haiku-4-5', ['claude-haiku-4-5'], false, 'Fast trivial lane'],
-          ['fable', 'Claude Fable', 'claude-fable-5', ['claude-fable-5'], true, 'High-effort lane'],
-          ['openai', 'ChatGPT', 'gpt-5.6-terra', ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6'], true, 'Luna → Terra → Sol by effort'],
+          ['fable', 'Claude Fable', 'claude-fable-5', ['claude-fable-5'], true, 'Premium strategy and build lane'],
+          ['openai', 'ChatGPT', 'gpt-5.6-terra', ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6'], true, 'Automatic GPT family routing'],
           ['grok', 'Grok', 'x-ai/grok-4.5', ['x-ai/grok-4.5'], true, 'Social and real-time pulse'],
-          ['perplexity', 'Perplexity', 'perplexity/sonar-pro', ['perplexity/sonar', 'perplexity/sonar-pro', 'perplexity/sonar-pro-search', 'perplexity/sonar-deep-research'], true, 'Sonar → Deep Research by effort'],
+          ['perplexity', 'Perplexity', 'perplexity/sonar-pro', ['perplexity/sonar', 'perplexity/sonar-pro', 'perplexity/sonar-pro-search', 'perplexity/sonar-deep-research'], true, 'Automatic Sonar family routing'],
         ].map(([id, label, model, models, effort, strengths]) => ({ id, label, model, models, effort, strengths, ready: false, tools: false })),
         efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         spend: { today: 0, month: 0, cap: 3, regulation: false, messagesToday: 0 },
@@ -999,7 +990,17 @@ function lsGet(key, legacyKey) {
     }
     if (u.startsWith('/api/chat')) {
       const reply = 'Cortana’s live core isn’t reachable right now, Chief — showing the public display snapshot.';
-      return jsonResponse({ reply, sources: [], routing: { label: 'Core offline', effort: 'offline', reason: 'remote core unreachable' } });
+      return jsonResponse({
+        reply,
+        speakText: reply,
+        sources: [],
+        routing: {
+          vendor: 'Core offline',
+          model: 'No LLM active',
+          brain: 'Obsidian snapshot',
+          tools: false,
+        },
+      });
     }
     return Promise.reject(new Error('Cortana core offline — static display mode'));
   }
@@ -1431,69 +1432,137 @@ function mountCortanaPNG(avatar, mount) {
   mount.replaceChildren(img);
 }
 
-/* Rising voxel particles through the holotank beam — chunky, readable pixels. */
-function initHoloParticles() {
-  const canvas = document.getElementById('holoParticles');
-  if (!canvas) return null;
-  const ctx = canvas.getContext('2d');
-  const particles = [];
-  const COUNT = 110;
-  function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = canvas.clientWidth || 280;
-    const h = canvas.clientHeight || 420;
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { w, h };
-  }
-  let size = resize();
-  window.addEventListener('resize', () => { size = resize(); });
-  for (let i = 0; i < COUNT; i++) {
-    particles.push({
-      x: 0.5 + (Math.random() - 0.5) * 0.42,
-      y: Math.random(),
-      z: Math.random(),
-      speed: 0.04 + Math.random() * 0.11,
-      size: 2 + Math.floor(Math.random() * 4),
-      hue: 175 + Math.random() * 45,
-      alpha: 0.5 + Math.random() * 0.5,
-    });
-  }
-  function frame(now) {
-    if (window.cortanaGalaxyActive) {
-      ctx.clearRect(0, 0, size.w, size.h);
-      requestAnimationFrame(frame);
-      return;
+/* Pixels are sampled from Cortana's real mesh instead of emitted by a generic
+   screen-space column. They begin on her surface, drift down and outward,
+   enlarge, fade, and respawn — so the data flow stays attached during a 360. */
+function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
+  bodyRoot.updateMatrixWorld(true);
+  model.updateMatrixWorld(true);
+  const rootInverse = new THREE.Matrix4().copy(bodyRoot.matrixWorld).invert();
+  const samples = [];
+  const point = new THREE.Vector3();
+
+  model.traverse((node) => {
+    if (!node.isMesh || !node.geometry || !node.geometry.attributes.position) return;
+    const attr = node.geometry.attributes.position;
+    const toRoot = new THREE.Matrix4().multiplyMatrices(rootInverse, node.matrixWorld);
+    const stride = Math.max(1, Math.floor(attr.count / 3600));
+    for (let i = 0; i < attr.count; i += stride) {
+      point.fromBufferAttribute(attr, i).applyMatrix4(toRoot);
+      samples.push(point.clone());
     }
-    const speaking = currentState === 'speaking';
-    const listening = currentState === 'listening';
-    const boost = speaking ? 1.55 : listening ? 1.25 : 1;
-    ctx.clearRect(0, 0, size.w, size.h);
-    ctx.imageSmoothingEnabled = false;
-    for (const p of particles) {
-      p.y -= p.speed * 0.016 * boost;
-      if (p.y < -0.05) {
-        p.y = 1.02;
-        p.x = 0.5 + (Math.random() - 0.5) * (0.18 + p.z * 0.38);
-        p.size = 1 + Math.floor(Math.random() * 3);
-      }
-      const taper = 0.35 + p.y * 0.55;
-      const px = (0.5 + (p.x - 0.5) * taper) * size.w;
-      const py = p.y * size.h;
-      const s = p.size * (1 + (1 - p.y) * 0.6);
-      const a = p.alpha * (0.35 + (1 - p.y) * 0.65) * (speaking ? 1.2 : 1);
-      ctx.fillStyle = `hsla(${p.hue}, 95%, ${68 + p.z * 18}%, ${a})`;
-      ctx.fillRect(Math.round(px - s / 2), Math.round(py - s / 2), Math.round(s), Math.round(s));
-      if (s >= 2) {
-        ctx.fillStyle = `hsla(${p.hue}, 100%, 92%, ${a * 0.55})`;
-        ctx.fillRect(Math.round(px - s / 4), Math.round(py - s / 4), Math.max(1, Math.round(s / 2)), Math.max(1, Math.round(s / 2)));
-      }
+  });
+  if (!samples.length) return null;
+
+  const count = Math.min(820, Math.max(420, Math.floor(samples.length * 0.22)));
+  const positions = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
+  const alphas = new Float32Array(count);
+  const glow = new Float32Array(count);
+  const bases = new Float32Array(count * 3);
+  const directions = new Float32Array(count * 2);
+  const phases = new Float32Array(count);
+  const speeds = new Float32Array(count);
+  const noise = new Float32Array(count);
+
+  for (let i = 0; i < count; i++) {
+    const base = samples[Math.floor(Math.random() * samples.length)];
+    const j = i * 3;
+    bases[j] = base.x;
+    bases[j + 1] = base.y;
+    bases[j + 2] = base.z;
+    let dx = base.x;
+    let dz = base.z;
+    const length = Math.hypot(dx, dz) || 1;
+    dx /= length;
+    dz /= length;
+    if (Math.abs(base.x) + Math.abs(base.z) < modelWidth * 0.04) {
+      const angle = Math.random() * Math.PI * 2;
+      dx = Math.cos(angle);
+      dz = Math.sin(angle);
     }
-    requestAnimationFrame(frame);
+    directions[i * 2] = dx;
+    directions[i * 2 + 1] = dz;
+    phases[i] = Math.random();
+    speeds[i] = 0.055 + Math.random() * 0.075;
+    noise[i] = Math.random() * Math.PI * 2;
   }
-  requestAnimationFrame(frame);
-  return { canvas, particles };
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  geometry.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1));
+  geometry.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0x75ddff) },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+    },
+    vertexShader: `
+      attribute float aSize;
+      attribute float aAlpha;
+      attribute float aGlow;
+      varying float vAlpha;
+      varying float vGlow;
+      uniform float uPixelRatio;
+      void main() {
+        vAlpha = aAlpha;
+        vGlow = aGlow;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aSize * uPixelRatio;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      varying float vAlpha;
+      varying float vGlow;
+      void main() {
+        vec2 p = abs(gl_PointCoord - 0.5);
+        float edge = max(p.x, p.y);
+        float square = 1.0 - smoothstep(0.34, 0.5, edge);
+        float core = 1.0 - smoothstep(0.0, 0.32, edge);
+        vec3 color = uColor + vec3(0.28, 0.36, 0.42) * core * vGlow;
+        gl_FragColor = vec4(color, vAlpha * square);
+      }
+    `,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  points.renderOrder = 20;
+  bodyRoot.add(points);
+
+  function update(dt, now, state) {
+    const t = now * 0.001;
+    const boost = state === 'speaking' ? 1.55 : state === 'listening' ? 1.2 : 1;
+    for (let i = 0; i < count; i++) {
+      phases[i] = (phases[i] + dt * speeds[i] * boost) % 1;
+      const phase = phases[i];
+      const flow = Math.pow(phase, 1.45);
+      const j = i * 3;
+      const d = i * 2;
+      const sideways = Math.sin(t * 1.4 + noise[i] + phase * 5.0) * modelWidth * 0.012;
+      const outward = modelWidth * (0.025 + flow * 0.13) * flow;
+      positions[j] = bases[j] + directions[d] * outward + directions[d + 1] * sideways;
+      positions[j + 1] = bases[j + 1] - modelHeight * (0.018 + flow * 0.16);
+      positions[j + 2] = bases[j + 2] + directions[d + 1] * outward - directions[d] * sideways;
+      sizes[i] = 1.7 + flow * 7.2;
+      alphas[i] = (0.2 + Math.sin(Math.PI * phase) * 0.64) * (state === 'speaking' ? 1.12 : 1);
+      glow[i] = 0.45 + Math.sin(noise[i] + t * 2.2) * 0.22 + flow * 0.45;
+    }
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.aSize.needsUpdate = true;
+    geometry.attributes.aAlpha.needsUpdate = true;
+    geometry.attributes.aGlow.needsUpdate = true;
+  }
+
+  return { points, geometry, material, update, count };
 }
 
 async function loadCortanaRig() {
@@ -1511,7 +1580,6 @@ async function loadCortanaRig() {
   canvas.className = 'holoFigure';
   canvas.setAttribute('aria-label', 'Cortana hologram — drag to orbit');
   mount.replaceChildren(canvas);
-  initHoloParticles();
 
   try {
     const scene = new THREE.Scene();
@@ -1608,33 +1676,34 @@ async function loadCortanaRig() {
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box0.min.y;
-    // Slight float above the plinth — hard-light avatar, not planted feet.
-    model.position.y += modelHeight * 0.03;
+    // Free-floating hard-light avatar: no pedestal or bottom portal.
+    model.position.y += modelHeight * 0.075;
     if (CORTANA_GLB_FACE_FLIP) model.rotation.y = Math.PI;
     const bodyRoot = new THREE.Group();
     bodyRoot.add(model);
     scene.add(bodyRoot);
+    const bodyPixels = buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth);
 
-    const orbitTarget = new THREE.Vector3(0, modelHeight * 0.46, 0);
-    // Pull camera further back so head-to-feet + outstretched hands clear the frame.
-    const fitDist = Math.max(modelHeight, modelWidth * 1.2) * 3.05;
-    camera.position.set(0, modelHeight * 0.48, fitDist);
+    const orbitTarget = new THREE.Vector3(0, modelHeight * 0.49, 0);
+    // Fill more of her allotted screen zone while keeping hands and feet visible.
+    const fitDist = Math.max(modelHeight, modelWidth * 1.16) * 2.62;
+    camera.position.set(0, modelHeight * 0.5, fitDist);
     camera.lookAt(orbitTarget);
 
     canvas.style.pointerEvents = 'auto';
     canvas.style.touchAction = 'none';
     canvas.style.cursor = 'grab';
 
-    // Camera stays locked on the cinematic holotank angle; she spins on the plinth.
-    // (Orbiting the camera kept drifting behind her and fighting the face-forward pose.)
+    // Camera stays locked while Cortana herself turns continuously. Dragging the
+    // figure takes over the yaw; release hands it back to the automatic 360.
     const spinState = {
       yaw: 0,
       auto: true,
-      speed: 0.45, // rad/sec — slow 360 pedestal turn
+      speed: 0.34, // rad/sec — calm full turn about every 18.5 seconds
       dragging: false,
       lastX: 0,
       grabSide: 0,
-      resumeAt: performance.now() + 4500,
+      resumeAt: performance.now(),
     };
 
     const raycaster = new THREE.Raycaster();
@@ -1671,7 +1740,7 @@ async function loadCortanaRig() {
       if (!spinState.dragging) return;
       spinState.dragging = false;
       spinState.grabSide = 0;
-      spinState.resumeAt = performance.now() + 1600;
+      spinState.resumeAt = performance.now() + 900;
       canvas.style.cursor = 'grab';
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
     }
@@ -1768,12 +1837,13 @@ async function loadCortanaRig() {
       const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
       for (const mat of emissiveMats) mat.emissiveIntensity = glow;
       updateBodyLanguage(dt, now);
+      if (bodyPixels) bodyPixels.update(dt, now, currentState);
       camera.lookAt(orbitTarget);
       renderer.render(scene, camera);
       cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, bodyRoot, mount, resize, spinState, bodyPose };
+    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, mount, resize, spinState, bodyPose };
     window.cortanaGLB = cortanaGLB;
     cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
@@ -1952,65 +2022,37 @@ const contextChips = document.getElementById('contextChips');
 let contextFiles = []; // vault paths attached to conversation
 let ttsEnabled = lsGet('cortana-tts', 'jarvis-tts') !== 'off';
 
-/* ===== Model switchboard state ===== */
-let selectedModel = lsGet('cortana-model', 'jarvis-model') || 'auto';
-let selectedEffort = lsGet('cortana-effort', 'jarvis-effort') || 'auto';
+/* ===== Automatic LLM routing + honest active-model readout =====
+   Old manual model/effort pins are deliberately cleared: Cortana routes each
+   message automatically, then reports the exact model that actually answered. */
+for (const key of ['cortana-model', 'jarvis-model', 'cortana-effort', 'jarvis-effort']) {
+  localStorage.removeItem(key);
+}
 let switchboard = null; // /api/models payload
 const MODEL_SHORT = { claude: 'Claude', haiku: 'Haiku', fable: 'Fable', openai: 'GPT', grok: 'Grok', perplexity: 'PPLX' };
-const EFFORT_SHORT = { low: 'Low', medium: 'Med', high: 'High', xhigh: 'X-Hi', max: 'Max' };
 
 async function buildSwitchboard() {
   try {
     const res = await fetch('/api/models');
     switchboard = await res.json();
-  } catch (_) { /* server offline — pills stay hidden */ }
-  renderPills();
+  } catch (_) { /* server offline — active readout stays honest */ }
   renderSysPanel();
 }
 
-function persistSwitch() {
-  localStorage.setItem('cortana-model', selectedModel);
-  localStorage.setItem('cortana-effort', selectedEffort);
-  renderPills();
-}
-
-function renderPills() {
-  const mWrap = document.getElementById('modelPills');
-  const eWrap = document.getElementById('effortPills');
-  mWrap.innerHTML = ''; eWrap.innerHTML = '';
-  const mk = (cls, label, title) => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = cls; b.textContent = label; b.title = title || '';
-    return b;
-  };
-  // Model pills
-  const mAuto = mk('mpill', '◈ Auto', 'Cortana picks the best model per message');
-  if (selectedModel === 'auto') mAuto.classList.add('sel', 'auto');
-  mAuto.addEventListener('click', () => { selectedModel = 'auto'; persistSwitch(); });
-  mWrap.appendChild(mAuto);
-  for (const p of (switchboard ? switchboard.providers : [])) {
-    const b = mk('mpill', MODEL_SHORT[p.id] || p.id, p.label + ' — ' + p.model + (p.ready ? '' : ' (no API key)'));
-    if (!p.ready) b.disabled = true;
-    if (selectedModel === p.id) b.classList.add('sel');
-    b.addEventListener('click', () => { selectedModel = p.id; persistSwitch(); });
-    mWrap.appendChild(b);
-  }
-  // Effort pills work across providers. Each provider maps the same clear
-  // effort scale to its own exact model/reasoning controls.
-  const selectedProvider = switchboard && switchboard.providers.find((p) => p.id === selectedModel);
-  const effortRelevant = selectedModel === 'auto' || !!(selectedProvider && selectedProvider.effort);
-  const eAuto = mk('epill', 'Auto', 'Cortana scales effort to the task: low for quick asks, x-high/max for builds');
-  if (selectedEffort === 'auto') eAuto.classList.add('sel', 'auto');
-  eAuto.disabled = !effortRelevant;
-  eAuto.addEventListener('click', () => { selectedEffort = 'auto'; persistSwitch(); });
-  eWrap.appendChild(eAuto);
-  for (const ef of (switchboard ? switchboard.efforts : ['low', 'medium', 'high', 'xhigh', 'max'])) {
-    const b = mk('epill', EFFORT_SHORT[ef] || ef, 'Pin effort to ' + ef);
-    b.disabled = !effortRelevant;
-    if (selectedEffort === ef) b.classList.add('sel');
-    b.addEventListener('click', () => { selectedEffort = ef; persistSwitch(); });
-    eWrap.appendChild(b);
-  }
+function renderLlmStatus(routing) {
+  if (!routing) return;
+  const status = document.getElementById('llmStatus');
+  const llm = document.getElementById('activeLlm');
+  const brain = document.getElementById('activeBrain');
+  const exactModel = String(routing.model || 'No LLM active');
+  const vendor = String(routing.vendor || '').trim();
+  llm.textContent = vendor && !exactModel.toLowerCase().includes(vendor.toLowerCase())
+    ? vendor + ' // ' + exactModel
+    : exactModel;
+  brain.textContent = String(routing.brain || (routing.tools
+    ? 'FGA Ops Brain // Obsidian live'
+    : 'FGA Ops Brain // LLM direct'));
+  status.classList.toggle('live', !!routing.model && routing.model !== 'No LLM active');
 }
 
 /* ===== Systems panel — live capabilities + dos/don'ts ===== */
@@ -2026,7 +2068,7 @@ function renderSysPanel() {
   const esc = (s) => String(s).replace(/</g, '&lt;');
   const dot = (on) => '<span class="dot ' + (on ? 'on' : 'off') + '">' + (on ? '●' : '○') + '</span>';
   const cap = switchboard.capabilities || {};
-  let html = '<div class="sysH">Switch Models</div>';
+  let html = '<div class="sysH">Available LLMs</div>';
   for (const p of switchboard.providers) {
     html += '<div class="sysRow">' + dot(p.ready) +
       '<span class="sname">' + esc(MODEL_SHORT[p.id] || p.id) + '</span>' +
@@ -2075,8 +2117,8 @@ function renderSysPanel() {
   }
 
   html += '<div class="sysH">Do</div><ul class="sysList">' + [
-    '<b>Just talk.</b> Auto picks the company, exact model, and effort for every mission.',
-    'Say <b>"go deep"</b> to force Fable, <b>"cheap mode"</b> for Haiku, or <b>"ask perplexity / gpt / grok"</b> to force a lane — or tap a provider and effort pill.',
+    '<b>Just talk.</b> Cortana selects the exact LLM automatically and reports what actually answered.',
+    'Ask for <b>Claude, GPT, Grok, or Perplexity</b> by name when you want a specific platform.',
     'Ask <b>"where are we at on spend?"</b> any time — every message\'s cost is tallied against the $3/day cap.',
     'Ask for builds — Cortana always hands back <b>the exact URL</b> when something is ready to open.',
     'Ask <b>"what automations do I have?"</b> or <b>"did my workflow run?"</b> — n8n is live.',
@@ -2093,15 +2135,16 @@ function renderSysPanel() {
 function addMsg(text, who, routing) {
   const div = document.createElement('div');
   div.className = 'msg ' + who;
-  if (who === 'cortana' && routing && routing.label) {
+  if (who === 'cortana' && routing && (routing.model || routing.vendor)) {
     const tag = document.createElement('span');
     tag.className = 'routeTag';
-    tag.textContent = '◈ ' + routing.label + (routing.model ? ' · ' + routing.model : '') + (routing.effort ? ' · ' + routing.effort : '');
-    if (routing.reason) {
-      const rr = document.createElement('span');
-      rr.className = 'rr';
-      rr.textContent = '  — ' + routing.reason;
-      tag.appendChild(rr);
+    const platform = [routing.vendor, routing.model].filter(Boolean).join(' // ');
+    tag.textContent = '◈ ' + platform;
+    if (routing.brain) {
+      const brain = document.createElement('span');
+      brain.className = 'brainTag';
+      brain.textContent = '  // ' + routing.brain;
+      tag.appendChild(brain);
     }
     div.appendChild(tag);
     div.appendChild(document.createTextNode(text));
@@ -2282,7 +2325,7 @@ async function sendMessage(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, contextFiles, model: selectedModel, effort: selectedEffort }),
+      body: JSON.stringify({ message: text, contextFiles }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(raw || res.statusText);
@@ -2291,6 +2334,7 @@ async function sendMessage(text) {
     setState('speaking');
     setSpeakingTone(spoken);
     startLipSync(spoken);
+    renderLlmStatus(data.routing);
     addMsg(data.reply, 'cortana', data.routing);
     if (window.cortanaTraceSources) window.cortanaTraceSources(data.sources || []);
     speak(spoken);
@@ -2356,12 +2400,6 @@ function silenceDelayFor(text) {
   if (MIDTHOUGHT_TAIL.test(t)) return SILENCE_MIDTHOUGHT_MS; // clearly mid-thought
   if (t.split(/\s+/).length <= 2) return SILENCE_MIDTHOUGHT_MS; // tiny fragment — wait
   return 2500; // no punctuation (Chrome usually gives none) — middle ground
-}
-
-function stopSpeaking() {
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  if (window.speechSynthesis) speechSynthesis.cancel();
-  stopLipSync();
 }
 
 function pauseMic() {
@@ -2589,8 +2627,9 @@ function setOpsOpen(open) {
 }
 opsToggle.addEventListener('click', () => setOpsOpen(!opsDock.classList.contains('open')));
 // Default: open on desktop, closed on mobile — remembered across sessions
-setOpsOpen(lsGet('cortana-ops', 'jarvis-ops') === 'open' ||
-  (lsGet('cortana-ops', 'jarvis-ops') === null && window.innerWidth > 720));
+const rememberedOpsState = lsGet('cortana-ops', 'jarvis-ops');
+opsDock.classList.toggle('open', window.innerWidth > 720 &&
+  (rememberedOpsState === 'open' || rememberedOpsState === null));
 
 /* ===== Floating vault files — Obsidian holograms in the background ===== */
 async function buildHoloField() {
@@ -2669,11 +2708,14 @@ window.addEventListener('DOMContentLoaded', () => {
   // Non-production visual QA hook: ?cortana-state=speaking&cortana-tone=emphatic
   const qa = new URLSearchParams(location.search);
   const qaState = qa.get('cortana-state');
-  // Wake-up greeting: first sound Chief hears on load, not a routing banner.
+  // Wake-up greeting: once per opened tab, even if the page silently reloads.
   // Browsers may block autoplay until there's a user gesture on this page —
   // if so this silently no-ops and the first spoken line is just his next
   // message's reply instead, no error shown.
-  if (!qaState) {
+  const greetingKey = 'cortana-boot-greeting-played-v1';
+  const greetingPlayed = sessionStorage.getItem(greetingKey) === '1';
+  if (!qaState && !greetingPlayed) {
+    sessionStorage.setItem(greetingKey, '1');
     setState('speaking');
     setSpeakingTone('I\'m here, Chief.');
     startLipSync('I\'m here, Chief.');

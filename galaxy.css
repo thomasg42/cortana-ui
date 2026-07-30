@@ -202,7 +202,9 @@ body.galaxy-view #galaxyHint { display: block; }
 
 body.galaxy-view #beam,
 body.galaxy-view #projBase,
-body.galaxy-view #holoField { display: none !important; opacity: 0; pointer-events: none; }
+body.galaxy-view #holoField,
+body.galaxy-view #holoCeiling,
+body.galaxy-view #holoParticles { display: none !important; opacity: 0; pointer-events: none; }
 body.galaxy-view #cortanaAvatar { opacity: 0; visibility: hidden; }
 body.galaxy-view #haloRing { opacity: 0 !important; visibility: hidden; }
 body.galaxy-view #orbStatus { top: 141px; bottom: auto; font-size: 9px; }

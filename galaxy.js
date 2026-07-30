@@ -657,9 +657,9 @@
       if (!res.ok) throw new Error('Graph unavailable');
       const data = await res.json();
       buildGalaxy(data);
-      // Always start in GALAXY. CORE remains fully available from the toggle,
-      // its preference plumbing stays intact, and it remains the load fallback.
-      setView('galaxy', false);
+      // Core is the hologram front door on Pages; Galaxy stays one tap away.
+      const saved = localStorage.getItem('cortana-view');
+      setView(saved === 'galaxy' ? 'galaxy' : 'core', false);
       window.cortanaGalaxyReady = true;
       if (!booted) {
         booted = true;

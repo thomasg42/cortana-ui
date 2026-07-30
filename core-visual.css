@@ -85,46 +85,60 @@ body:not(.galaxy-view) #hudGrid {
 }
 
 body:not(.galaxy-view) #scanlines {
-  opacity: .22;
+  opacity: .12;
 }
 
 body:not(.galaxy-view) #scanlines::after {
-  opacity: .42;
+  display: none !important;
 }
 
-/* The generated environment already owns the projector and light cone. */
+/* Ceiling hard-light emitter + rising beam aligned to the deck projector. */
+body:not(.galaxy-view) #holoCeiling {
+  width: min(26vmin, 260px);
+  height: 26vh;
+  opacity: .78;
+}
+
+body:not(.galaxy-view) #holoParticles {
+  bottom: 126px;
+  width: min(34vmin, 320px);
+  height: 50vh;
+  opacity: .95;
+}
+
 body:not(.galaxy-view) #beam {
-  width: min(34vmin, 330px);
-  height: 34vh;
-  bottom: 111px;
-  opacity: .36;
+  width: min(32vmin, 310px);
+  height: 48vh;
+  bottom: 126px;
+  opacity: .42;
   mix-blend-mode: screen;
 }
 
 body:not(.galaxy-view) #projBase {
-  bottom: 104px;
-  width: 168px;
-  height: 18px;
-  opacity: .64;
+  bottom: 118px;
+  width: 156px;
+  height: 16px;
+  opacity: .72;
 }
 
-/* Cortana remains centered on the physical projector, with cleaner breathing room. */
+/* Full-body figure centered on the holotank — further back so hands and feet clear. */
 body:not(.galaxy-view) #cortanaAvatar {
   left: 50%;
-  top: 78px;
-  bottom: 198px;
-  width: min(38vw, 480px);
+  top: 8vh;
+  bottom: 22vh;
+  width: min(30vw, 400px);
   opacity: 1;
+  pointer-events: auto;
 }
 
 body:not(.galaxy-view) #cortanaAvatar::before {
-  width: min(34vw, 410px);
-  opacity: .42;
+  width: min(30vw, 360px);
+  opacity: .36;
 }
 
 body:not(.galaxy-view) #cortanaAvatar::after {
-  width: min(19vw, 230px);
-  opacity: .62;
+  width: min(16vw, 200px);
+  opacity: .7;
 }
 
 /* All command copy lives in one calm right-side column. */
@@ -435,7 +449,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: 260px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 49%; width: min(34vw, 410px); }
+  body:not(.galaxy-view) #cortanaAvatar { left: 49%; width: min(30vw, 360px); top: 11vh; bottom: 25vh; }
   body:not(.galaxy-view) #holoField { bottom: 158px; }
   body:not(.galaxy-view) .holoCard:nth-child(n + 3) { display: none; }
 }
@@ -458,7 +472,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: auto; right: 12px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 45%; width: min(34vw, 340px); }
+  body:not(.galaxy-view) #cortanaAvatar { left: 48%; width: min(32vw, 320px); top: 12vh; bottom: 26vh; }
   #missionDoctrine { min-height: 138px; }
   #missionDoctrine strong { font-size: 11px; }
 }
@@ -517,14 +531,16 @@ body:not(.galaxy-view) #filePreview {
 
   body:not(.galaxy-view) #cortanaAvatar {
     left: 50%;
-    top: 138px;
-    bottom: 206px;
-    width: min(68vw, 360px);
+    top: 14vh;
+    bottom: 28vh;
+    width: min(56vw, 300px);
   }
 
-  body:not(.galaxy-view) #cortanaAvatar::before { width: min(64vw, 330px); }
-  body:not(.galaxy-view) #beam { bottom: 123px; }
-  body:not(.galaxy-view) #projBase { bottom: 117px; }
+  body:not(.galaxy-view) #cortanaAvatar::before { width: min(52vw, 280px); }
+  body:not(.galaxy-view) #beam { bottom: 132px; height: 42vh; }
+  body:not(.galaxy-view) #projBase { bottom: 124px; }
+  body:not(.galaxy-view) #holoParticles { bottom: 132px; height: 44vh; }
+  body:not(.galaxy-view) #holoCeiling { height: 18vh; }
 
   body:not(.galaxy-view) #orbStatus {
     top: 126px;

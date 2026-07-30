@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>C.O.R.T.A.N.A — FGA</title>
-<link rel="stylesheet" href="galaxy.css?v=20260715-corelink" />
+<link rel="stylesheet" href="galaxy.css?v=20260729-holotank" />
 <style>
   :root {
     --arc: #35ff9d;
@@ -27,47 +27,49 @@
 
   /* ===== Cortana hologram — replaces the old orb in Core view ===== */
   #cortanaAvatar {
-    position: fixed; z-index: 3; left: 50%; top: 72px; bottom: 200px;
-    width: min(48vw, 540px); transform: translateX(-50%);
-    display: flex; align-items: center; justify-content: center;
-    pointer-events: none; opacity: .96; visibility: visible;
+    position: fixed; z-index: 3; left: 50%; top: 7vh; bottom: 20vh;
+    width: min(34vw, 440px); transform: translateX(-50%);
+    display: flex; align-items: flex-end; justify-content: center;
+    pointer-events: auto; opacity: .96; visibility: visible;
     transition: opacity .35s ease, visibility .35s ease, filter .35s ease;
-    --avatar-glow: rgba(53, 255, 157, .42);
-    --avatar-core: rgba(110, 216, 255, .25);
+    --avatar-glow: rgba(110, 216, 255, .55);
+    --avatar-core: rgba(90, 200, 255, .22);
   }
   #cortanaAvatar::before {
-    content: ""; position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%);
-    width: min(42vw, 470px); aspect-ratio: 1; border-radius: 50%;
-    background: radial-gradient(circle, var(--avatar-core) 0%, rgba(53,255,157,.08) 38%, transparent 72%);
-    filter: blur(12px); opacity: .72; animation: avatarAura 4.8s ease-in-out infinite;
+    content: ""; position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+    width: min(36vw, 460px); aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle, var(--avatar-core) 0%, rgba(110,216,255,.07) 42%, transparent 74%);
+    filter: blur(14px); opacity: .58; animation: avatarAura 5.4s ease-in-out infinite;
+    pointer-events: none;
   }
   #cortanaAvatar::after {
-    content: ""; position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%);
-    width: min(25vw, 270px); height: 24px; border-radius: 50%;
-    background: radial-gradient(ellipse, rgba(196,240,255,.9), var(--avatar-glow) 36%, transparent 72%);
-    box-shadow: 0 0 26px var(--avatar-glow), 0 0 80px var(--avatar-glow);
-    opacity: .82;
+    content: ""; position: absolute; left: 50%; bottom: 2%; transform: translateX(-50%);
+    width: min(22vw, 250px); height: 28px; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(196,240,255,.95), var(--avatar-glow) 40%, transparent 74%);
+    box-shadow: 0 0 30px var(--avatar-glow), 0 0 90px rgba(90,200,255,.35);
+    opacity: .88; pointer-events: none;
   }
   #cortanaAvatar .cortanaBody {
     position: relative; z-index: 1; width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    transform-style: preserve-3d; perspective: 900px;
+    display: flex; align-items: flex-end; justify-content: center;
+    transform-style: preserve-3d; perspective: 1100px;
     --look-x: 0px; --look-y: 0px; --eye-x: 0px; --eye-y: 0px;
     animation: cortanaPatrol 13.5s ease-in-out infinite;
     will-change: transform;
   }
-  #cortanaAvatar .cortanaBody::after {
-    content: ""; position: absolute; z-index: 2; left: 15%; right: 15%; top: 15%; height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(190,245,255,.85), transparent);
-    box-shadow: 0 0 10px rgba(110,216,255,.8);
-    opacity: .24; animation: cortanaScan 4.2s linear infinite;
-  }
+  /* No scan sweep — Halo hard-light is volumetric glow + particles, not a CRT bar. */
+  #cortanaAvatar .cortanaBody::after { display: none !important; content: none; }
   #cortanaAvatar .holoFigure {
     position: relative; z-index: 1; width: 100%; height: 100%;
-    filter: drop-shadow(0 0 2px rgba(205,235,255,.82)) drop-shadow(0 0 11px var(--avatar-glow));
-    transform-origin: 50% 82%; animation: cortanaFloat 4.8s ease-in-out infinite;
+    filter:
+      drop-shadow(0 0 1px rgba(220,245,255,.95))
+      drop-shadow(0 0 10px rgba(110,216,255,.55))
+      drop-shadow(0 0 28px rgba(70,180,255,.28));
+    transform-origin: 50% 92%; animation: cortanaFloat 5.2s ease-in-out infinite;
     will-change: transform, filter, opacity; shape-rendering: geometricPrecision;
+    cursor: grab; touch-action: none;
   }
+  #cortanaAvatar .holoFigure:active { cursor: grabbing; }
   #cortanaAvatar.state-listening {
     --avatar-glow: rgba(255,196,46,.62); --avatar-core: rgba(255,226,122,.25);
   }
@@ -110,8 +112,7 @@
     35% { transform: translate3d(calc(var(--look-x) + 5px), calc(var(--look-y) - 3px), 6px) rotateY(-2.5deg) rotateZ(.3deg); }
     68% { transform: translate3d(calc(var(--look-x) - 3px), calc(var(--look-y) - 1px), 3px) rotateY(1.5deg); }
   }
-  @keyframes cortanaScan { from { top: 13%; opacity: 0; } 12% { opacity: .26; } 88% { opacity: .18; } to { top: 91%; opacity: 0; } }
-  @keyframes avatarAura { 0%,100% { transform: translate(-50%,-50%) scale(.96); opacity: .56; } 50% { transform: translate(-50%,-50%) scale(1.05); opacity: .82; } }
+  @keyframes avatarAura { 0%,100% { transform: translate(-50%,-50%) scale(.96); opacity: .48; } 50% { transform: translate(-50%,-50%) scale(1.04); opacity: .72; } }
 
   /* ===== Halo 4 Cortana: articulated human hard-light rig =====
      Every major joint is independent. Facial visemes and jaw travel are
@@ -260,34 +261,61 @@
   @keyframes cHandCareL { 0%,100% { transform: rotate(8deg); } 50% { transform: rotate(13deg); } }
   @keyframes cHeadCare { 0%,100% { transform: rotate(2.8deg); } 50% { transform: rotate(3.8deg) translateY(.8px); } }
 
-  /* ===== Hologram projector rig ===== */
+  /* ===== Holotank projector rig (Halo pedestal + ceiling hard-light) ===== */
+  /* Static phosphor grain only — no traveling scan bar. */
   #scanlines {
-    position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: .5;
+    position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: .18;
     background: repeating-linear-gradient(to bottom,
-      rgba(53,255,157,0.028) 0px, rgba(53,255,157,0.028) 1px, transparent 1px, transparent 3px);
+      rgba(110,216,255,0.02) 0px, rgba(110,216,255,0.02) 1px, transparent 1px, transparent 4px);
     mix-blend-mode: screen;
   }
-  #scanlines::after {
-    content: ""; position: absolute; left: 0; right: 0; height: 90px;
-    background: linear-gradient(to bottom, transparent, rgba(53,255,157,0.06), transparent);
-    animation: scanmove 7s linear infinite;
-  }
-  @keyframes scanmove { from { top: -12%; } to { top: 112%; } }
+  #scanlines::after { display: none !important; content: none; }
 
+  /* Ceiling emitter — projection originates above and falls into the figure. */
+  #holoCeiling {
+    position: fixed; left: 50%; top: 0; transform: translateX(-50%);
+    width: min(28vmin, 280px); height: 28vh; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(180,235,255,.55), transparent 55%),
+      linear-gradient(to bottom, rgba(120,210,255,.22), rgba(90,200,255,.06) 45%, transparent 100%);
+    clip-path: polygon(38% 0%, 62% 0%, 100% 100%, 0% 100%);
+    filter: blur(.6px);
+    mix-blend-mode: screen;
+    animation: beamflicker 5.2s infinite;
+  }
+  #holoCeiling::before {
+    content: ""; position: absolute; left: 50%; top: -2px; transform: translateX(-50%);
+    width: 72px; height: 10px; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(230,250,255,.95), rgba(110,216,255,.4) 50%, transparent 72%);
+    box-shadow: 0 0 24px rgba(140,220,255,.7), 0 0 60px rgba(90,200,255,.35);
+  }
+
+  /* Rising hard-light column from the holotank plinth. */
   #beam {
-    position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%);
-    width: min(46vmin, 420px); height: 46vh; z-index: 1; pointer-events: none;
-    background: linear-gradient(to top, rgba(53,255,157,0.18), rgba(53,255,157,0.055) 55%, transparent 92%);
-    clip-path: polygon(43% 100%, 57% 100%, 100% 0%, 0% 0%);
-    filter: blur(1px);
+    position: fixed; left: 50%; bottom: 118px; transform: translateX(-50%);
+    width: min(38vmin, 360px); height: 52vh; z-index: 1; pointer-events: none;
+    background: linear-gradient(to top,
+      rgba(110,216,255,0.28),
+      rgba(90,200,255,0.1) 35%,
+      rgba(70,180,255,0.04) 70%,
+      transparent 96%);
+    clip-path: polygon(44% 100%, 56% 100%, 92% 0%, 8% 0%);
+    filter: blur(.8px);
+    mix-blend-mode: screen;
     animation: beamflicker 4.6s infinite;
   }
   #projBase {
-    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
-    width: 130px; height: 14px; border-radius: 50%; z-index: 1; pointer-events: none;
-    background: radial-gradient(ellipse at center, rgba(255,232,170,0.9), rgba(53,255,157,0.35) 45%, transparent 70%);
-    box-shadow: 0 0 24px rgba(53,255,157,0.5), 0 0 70px rgba(53,255,157,0.25);
+    position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+    width: 150px; height: 16px; border-radius: 50%; z-index: 1; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(220,245,255,0.95), rgba(90,200,255,0.4) 45%, transparent 72%);
+    box-shadow: 0 0 28px rgba(110,216,255,0.55), 0 0 80px rgba(70,180,255,0.3);
     animation: beamflicker 4.6s infinite;
+  }
+  /* Chunky voxel particles rising through the beam — each pixel readable. */
+  #holoParticles {
+    position: fixed; left: 50%; bottom: 118px; transform: translateX(-50%);
+    width: min(36vmin, 340px); height: 54vh; z-index: 2; pointer-events: none;
+    mix-blend-mode: screen; opacity: .92;
   }
   @keyframes beamflicker {
     0%, 100% { opacity: .95; }
@@ -635,21 +663,25 @@
     #opsDock { width: 160px; right: 8px; }
     #opsToggle { right: 8px; }
     #beam { width: 60vmin; }
-    #cortanaAvatar { top: 78px; bottom: 190px; width: min(76vw, 430px); opacity: .9; }
-    #cortanaAvatar::before { width: min(70vw, 390px); }
-    #cortanaAvatar::after { width: min(44vw, 230px); }
+    #cortanaAvatar { top: 12vh; bottom: 26vh; width: min(58vw, 320px); opacity: .95; }
+    #cortanaAvatar::before { width: min(54vw, 300px); }
+    #cortanaAvatar::after { width: min(36vw, 200px); }
+    #holoParticles { bottom: 128px; height: 44vh; }
+    #holoCeiling { height: 18vh; }
     #orbStatus { bottom: 134px; }
   }
 </style>
-<link rel="stylesheet" href="core-visual.css?v=20260729-mission-deck" />
+<link rel="stylesheet" href="core-visual.css?v=20260729-holotank" />
 </head>
 <body>
 <div id="missionBackdrop" aria-hidden="true"></div>
 <div id="stars"></div>
 <div id="haloRing"></div>
 <div id="holoField"></div>
+<div id="holoCeiling" aria-hidden="true"></div>
 <div id="beam"></div>
 <div id="projBase"></div>
+<canvas id="holoParticles" aria-hidden="true"></canvas>
 <div id="cortanaAvatar" class="state-idle" data-viseme="rest" aria-hidden="true">
   <div class="cortanaBody">
     <!-- Core visual is the static cortana-hologram.png until the 3D GLB model is ready.
@@ -1378,9 +1410,9 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// Set to true if the model turns out to face away from camera after QA.
-const CORTANA_GLB_FACE_FLIP = false;
-let cortanaGLB = null; // { scene, camera, renderer, model, mount, resize }
+// Live QA: model faces away at yaw 0 — PI turns her toward Chief.
+const CORTANA_GLB_FACE_FLIP = true;
+let cortanaGLB = null; // { scene, camera, renderer, model, mount, resize, controls, body }
 
 function mountCortanaPNG(avatar, mount) {
   const img = document.createElement('img');
@@ -1399,6 +1431,71 @@ function mountCortanaPNG(avatar, mount) {
   mount.replaceChildren(img);
 }
 
+/* Rising voxel particles through the holotank beam — chunky, readable pixels. */
+function initHoloParticles() {
+  const canvas = document.getElementById('holoParticles');
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d');
+  const particles = [];
+  const COUNT = 110;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth || 280;
+    const h = canvas.clientHeight || 420;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w, h };
+  }
+  let size = resize();
+  window.addEventListener('resize', () => { size = resize(); });
+  for (let i = 0; i < COUNT; i++) {
+    particles.push({
+      x: 0.5 + (Math.random() - 0.5) * 0.42,
+      y: Math.random(),
+      z: Math.random(),
+      speed: 0.04 + Math.random() * 0.11,
+      size: 2 + Math.floor(Math.random() * 4),
+      hue: 175 + Math.random() * 45,
+      alpha: 0.5 + Math.random() * 0.5,
+    });
+  }
+  function frame(now) {
+    if (window.cortanaGalaxyActive) {
+      ctx.clearRect(0, 0, size.w, size.h);
+      requestAnimationFrame(frame);
+      return;
+    }
+    const speaking = currentState === 'speaking';
+    const listening = currentState === 'listening';
+    const boost = speaking ? 1.55 : listening ? 1.25 : 1;
+    ctx.clearRect(0, 0, size.w, size.h);
+    ctx.imageSmoothingEnabled = false;
+    for (const p of particles) {
+      p.y -= p.speed * 0.016 * boost;
+      if (p.y < -0.05) {
+        p.y = 1.02;
+        p.x = 0.5 + (Math.random() - 0.5) * (0.18 + p.z * 0.38);
+        p.size = 1 + Math.floor(Math.random() * 3);
+      }
+      const taper = 0.35 + p.y * 0.55;
+      const px = (0.5 + (p.x - 0.5) * taper) * size.w;
+      const py = p.y * size.h;
+      const s = p.size * (1 + (1 - p.y) * 0.6);
+      const a = p.alpha * (0.35 + (1 - p.y) * 0.65) * (speaking ? 1.2 : 1);
+      ctx.fillStyle = `hsla(${p.hue}, 95%, ${68 + p.z * 18}%, ${a})`;
+      ctx.fillRect(Math.round(px - s / 2), Math.round(py - s / 2), Math.round(s), Math.round(s));
+      if (s >= 2) {
+        ctx.fillStyle = `hsla(${p.hue}, 100%, 92%, ${a * 0.55})`;
+        ctx.fillRect(Math.round(px - s / 4), Math.round(py - s / 4), Math.max(1, Math.round(s / 2)), Math.max(1, Math.round(s / 2)));
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  return { canvas, particles };
+}
+
 async function loadCortanaRig() {
   const avatar = document.getElementById('cortanaAvatar');
   const mount = avatar && avatar.querySelector('.rigMount');
@@ -1412,23 +1509,38 @@ async function loadCortanaRig() {
 
   const canvas = document.createElement('canvas');
   canvas.className = 'holoFigure';
+  canvas.setAttribute('aria-label', 'Cortana hologram — drag to orbit');
   mount.replaceChildren(canvas);
+  initHoloParticles();
 
   try {
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.set(0, 0, 3);
+    // Perspective reads more like a holotank projection than flat ortho crop.
+    const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 40);
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     if ('outputEncoding' in renderer) renderer.outputEncoding = THREE.sRGBEncoding;
+    if ('toneMapping' in renderer) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+    }
 
-    scene.add(new THREE.AmbientLight(0x9db9ff, 0.55));
-    const key = new THREE.DirectionalLight(0xdfefff, 1.7);
-    key.position.set(0.6, 1.4, 1.2);
+    // Hard-light from above (ceiling emitter) + cool fill — Halo holotank lighting.
+    scene.add(new THREE.AmbientLight(0x6aa8ff, 0.35));
+    const key = new THREE.DirectionalLight(0xd8f4ff, 1.35);
+    key.position.set(0.15, 2.8, 0.4);
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x8eefff, 1.0);
-    rim.position.set(-1.1, 0.6, -0.9);
+    const rim = new THREE.DirectionalLight(0x7cf0ff, 1.45);
+    rim.position.set(-0.8, 1.2, -1.4);
     scene.add(rim);
+    const floorGlow = new THREE.PointLight(0x8eefff, 0.85, 6);
+    floorGlow.position.set(0, 0.15, 0.3);
+    scene.add(floorGlow);
+    const ceilingSpot = new THREE.SpotLight(0xb8f0ff, 1.1, 8, Math.PI / 7, 0.55, 1.1);
+    ceilingSpot.position.set(0, 3.2, 0.2);
+    ceilingSpot.target.position.set(0, 0.9, 0);
+    scene.add(ceilingSpot);
+    scene.add(ceilingSpot.target);
 
     const loader = new THREE.GLTFLoader();
     const gltf = await new Promise((resolve, reject) => {
@@ -1436,91 +1548,233 @@ async function loadCortanaRig() {
     });
 
     const model = gltf.scene;
-    const box0 = new THREE.Box3().setFromObject(model); // raw local bounds, before recentering
+    const box0 = new THREE.Box3().setFromObject(model);
+    const modelHeight = Math.max(0.001, box0.max.y - box0.min.y);
+    const modelWidth = Math.max(0.001, box0.max.x - box0.min.x);
     const swayUniform = { value: 0 };
+    const talkUniform = { value: 0 };
+    const flickerUniform = { value: 1 };
     let emissiveMats = [];
+
     model.traverse((node) => {
-      if (node.isMesh && node.material) {
-        node.material.side = THREE.DoubleSide;
-        if (node.material.emissiveMap) emissiveMats.push(node.material);
-        // Gentle idle sway: displacement grows from 0 at the feet to a small
-        // max at the head, so the figure reads as alive without a skeleton.
-        node.material.onBeforeCompile = (shader) => {
+      if (!node.isMesh || !node.material) return;
+      const mats = Array.isArray(node.material) ? node.material : [node.material];
+      mats.forEach((mat, idx) => {
+        const holo = mat.clone();
+        holo.transparent = true;
+        holo.opacity = 0.9;
+        holo.depthWrite = false;
+        holo.side = THREE.DoubleSide;
+        if ('emissive' in holo) {
+          holo.emissive = new THREE.Color(0x4eb8ff);
+          holo.emissiveIntensity = 0.72;
+        }
+        if (holo.emissiveMap) emissiveMats.push(holo);
+        holo.onBeforeCompile = (shader) => {
           shader.uniforms.uSway = swayUniform;
+          shader.uniforms.uTalk = talkUniform;
+          shader.uniforms.uFlicker = flickerUniform;
           shader.uniforms.uMinY = { value: box0.min.y };
           shader.uniforms.uMaxY = { value: box0.max.y };
-          shader.vertexShader = 'uniform float uSway;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
+          shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
           shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
             float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
-            transformed.x += swayT * swayT * 0.05 * sin(uSway);
-            transformed.z += swayT * swayT * 0.03 * cos(uSway * 0.8);`
+            float armSide = sign(position.x + 0.0001);
+            float armBand = smoothstep(0.15, 0.55, abs(position.x) / max(uMaxY - uMinY, 0.0001));
+            transformed.x += swayT * swayT * (0.035 + uTalk * 0.04) * sin(uSway);
+            transformed.z += swayT * swayT * (0.022 + uTalk * 0.03) * cos(uSway * 0.85);
+            /* Mesh-level "arm" language — no skeleton, so side bands lean with speech. */
+            transformed.y += armBand * uTalk * 0.03 * sin(uSway * 1.7 + armSide);
+            transformed.x += armBand * uTalk * 0.05 * armSide * sin(uSway * 1.3);`
+          );
+          shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <output_fragment>',
+            `#include <output_fragment>
+            /* Hard-light wash + soft flicker — no traveling scan. */
+            vec3 holoTint = vec3(0.45, 0.82, 1.0);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + holoTint * 0.22, 0.55) * (0.86 + 0.14 * uFlicker);
+            gl_FragColor.a *= 0.78 + 0.14 * uFlicker;`
           );
         };
-      }
+        if (Array.isArray(node.material)) node.material[idx] = holo;
+        else node.material = holo;
+      });
     });
 
     const center = box0.getCenter(new THREE.Vector3());
     model.position.x -= center.x;
     model.position.z -= center.z;
     model.position.y -= box0.min.y;
+    // Slight float above the plinth — hard-light avatar, not planted feet.
+    model.position.y += modelHeight * 0.03;
     if (CORTANA_GLB_FACE_FLIP) model.rotation.y = Math.PI;
-    scene.add(model);
+    const bodyRoot = new THREE.Group();
+    bodyRoot.add(model);
+    scene.add(bodyRoot);
 
-    const modelHeight = box0.max.y - box0.min.y;
-    const orbitTarget = new THREE.Vector3(0, modelHeight * 0.55, 0);
-    camera.position.set(0, modelHeight * 0.55, 3);
+    const orbitTarget = new THREE.Vector3(0, modelHeight * 0.46, 0);
+    // Pull camera further back so head-to-feet + outstretched hands clear the frame.
+    const fitDist = Math.max(modelHeight, modelWidth * 1.2) * 3.05;
+    camera.position.set(0, modelHeight * 0.48, fitDist);
+    camera.lookAt(orbitTarget);
 
     canvas.style.pointerEvents = 'auto';
     canvas.style.touchAction = 'none';
     canvas.style.cursor = 'grab';
-    const controls = new THREE.OrbitControls(camera, canvas);
-    controls.target.copy(orbitTarget);
-    controls.enablePan = false;
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.rotateSpeed = 0.6;
-    controls.minPolarAngle = Math.PI * 0.28;
-    controls.maxPolarAngle = Math.PI * 0.72;
-    controls.minZoom = 0.65;
-    controls.maxZoom = 2.4;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.6; // slow continuous 360, user drag overrides then resumes
-    controls.addEventListener('start', () => { canvas.style.cursor = 'grabbing'; });
-    controls.addEventListener('end', () => { canvas.style.cursor = 'grab'; });
+
+    // Camera stays locked on the cinematic holotank angle; she spins on the plinth.
+    // (Orbiting the camera kept drifting behind her and fighting the face-forward pose.)
+    const spinState = {
+      yaw: 0,
+      auto: true,
+      speed: 0.45, // rad/sec — slow 360 pedestal turn
+      dragging: false,
+      lastX: 0,
+      grabSide: 0,
+      resumeAt: performance.now() + 4500,
+    };
+
+    const raycaster = new THREE.Raycaster();
+    const pointerNDC = new THREE.Vector2();
+
+    function pointerToNDC(e) {
+      const rect = canvas.getBoundingClientRect();
+      pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    }
+    function pickGrabSide(e) {
+      pointerToNDC(e);
+      raycaster.setFromCamera(pointerNDC, camera);
+      const hits = raycaster.intersectObject(model, true);
+      if (!hits.length) return (pointerNDC.x < 0 ? -1 : 1);
+      return hits[0].point.x < 0 ? -1 : 1;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      spinState.dragging = true;
+      spinState.auto = false;
+      spinState.lastX = e.clientX;
+      spinState.grabSide = pickGrabSide(e);
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!spinState.dragging) return;
+      const dx = e.clientX - spinState.lastX;
+      spinState.lastX = e.clientX;
+      spinState.yaw += dx * 0.008;
+    });
+    function endDrag(e) {
+      if (!spinState.dragging) return;
+      spinState.dragging = false;
+      spinState.grabSide = 0;
+      spinState.resumeAt = performance.now() + 1600;
+      canvas.style.cursor = 'grab';
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+
+    // Optional scroll to dolly camera in/out slightly.
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const dir = Math.sign(e.deltaY);
+      camera.position.z = THREE.MathUtils.clamp(camera.position.z + dir * 0.18, fitDist * 0.82, fitDist * 1.45);
+    }, { passive: false });
 
     function resize() {
-      const w = mount.clientWidth || window.innerWidth * 0.4;
-      const h = mount.clientHeight || window.innerHeight * 0.5;
-      const aspect = w / h;
-      const frustumH = modelHeight * 1.05; // slight headroom, feet anchored to bottom
-      const frustumW = frustumH * aspect;
-      camera.left = -frustumW / 2; camera.right = frustumW / 2;
-      camera.bottom = 0; camera.top = frustumH;
+      const w = mount.clientWidth || window.innerWidth * 0.32;
+      const h = mount.clientHeight || window.innerHeight * 0.55;
+      camera.aspect = w / Math.max(h, 1);
       camera.updateProjectionMatrix();
       renderer.setSize(w, h, false);
     }
     resize();
     window.addEventListener('resize', resize);
 
-    // Single continuous loop: orbit/auto-rotate, idle sway, and the
-    // circuit-glow breathing (cadence tied to the idle/listening/thinking/
-    // speaking state machine) all live-render every frame.
+    const bodyPose = {
+      floatY: 0, leanX: 0, leanZ: 0, yaw: 0, roll: 0,
+      targetLeanX: 0, targetLeanZ: 0, targetYaw: 0, targetRoll: 0,
+    };
+
+    function updateBodyLanguage(dt, now) {
+      const state = currentState || 'idle';
+      const t = now * 0.001;
+      let talk = 0;
+      if (state === 'speaking') talk = 0.55 + Math.sin(t * 8.5) * 0.35 + Math.sin(t * 13.2) * 0.15;
+      else if (state === 'listening') talk = 0.18 + Math.sin(t * 2.2) * 0.08;
+      else if (state === 'thinking') talk = 0.12;
+      talkUniform.value = THREE.MathUtils.clamp(talk, 0, 1);
+
+      flickerUniform.value = 0.92 + Math.sin(t * 17.3) * 0.04 + (Math.random() > 0.992 ? -0.12 : 0);
+
+      if (state === 'idle') {
+        bodyPose.targetLeanX = Math.sin(t * 0.55) * 0.03;
+        bodyPose.targetLeanZ = Math.cos(t * 0.4) * 0.02;
+        bodyPose.targetYaw = Math.sin(t * 0.28) * 0.06;
+        bodyPose.targetRoll = Math.sin(t * 0.35) * 0.02;
+      } else if (state === 'listening') {
+        bodyPose.targetLeanZ = 0.08;
+        bodyPose.targetLeanX = Math.sin(t * 1.1) * 0.03;
+        bodyPose.targetYaw = Math.sin(t * 0.9) * 0.1;
+        bodyPose.targetRoll = -0.03;
+      } else if (state === 'thinking') {
+        bodyPose.targetLeanX = 0.06;
+        bodyPose.targetLeanZ = 0.04;
+        bodyPose.targetYaw = -0.12 + Math.sin(t * 0.7) * 0.04;
+        bodyPose.targetRoll = 0.05;
+      } else if (state === 'speaking') {
+        const emphatic = avatar.classList.contains('tone-emphatic');
+        const caring = avatar.classList.contains('tone-caring');
+        const amp = emphatic ? 1.45 : caring ? 0.7 : 1;
+        bodyPose.targetLeanZ = (0.04 + Math.sin(t * 3.4) * 0.05) * amp;
+        bodyPose.targetLeanX = Math.sin(t * 2.6) * 0.06 * amp;
+        bodyPose.targetYaw = Math.sin(t * 2.1) * 0.14 * amp;
+        bodyPose.targetRoll = Math.sin(t * 2.8) * 0.05 * amp;
+      }
+
+      if (spinState.dragging && spinState.grabSide) {
+        bodyPose.targetLeanX += spinState.grabSide * 0.16;
+        bodyPose.targetRoll += spinState.grabSide * 0.09;
+        bodyPose.targetYaw += spinState.grabSide * 0.12;
+      }
+
+      const ease = 1 - Math.exp(-dt * 5.5);
+      bodyPose.leanX += (bodyPose.targetLeanX - bodyPose.leanX) * ease;
+      bodyPose.leanZ += (bodyPose.targetLeanZ - bodyPose.leanZ) * ease;
+      bodyPose.yaw += (bodyPose.targetYaw - bodyPose.yaw) * ease;
+      bodyPose.roll += (bodyPose.targetRoll - bodyPose.roll) * ease;
+      bodyPose.floatY = Math.sin(t * 1.15) * modelHeight * 0.012 + (state === 'speaking' ? Math.sin(t * 6.5) * modelHeight * 0.006 : 0);
+
+      if (!spinState.dragging && now > spinState.resumeAt) spinState.auto = true;
+      if (spinState.auto) spinState.yaw += spinState.speed * dt;
+
+      bodyRoot.position.y = bodyPose.floatY;
+      bodyRoot.rotation.x = bodyPose.leanZ;
+      bodyRoot.rotation.z = bodyPose.leanX;
+      bodyRoot.rotation.y = spinState.yaw + bodyPose.yaw;
+      model.rotation.z = bodyPose.roll * 0.5;
+    }
+
     let pulseT = 0, lastFrame = performance.now();
     function animate(now) {
-      const dt = (now - lastFrame) / 1000; lastFrame = now;
+      const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
       const speed = (states[currentState] && states[currentState].timeSpeed) || 0.012;
       pulseT += dt * speed * 40;
-      swayUniform.value = pulseT * 0.5;
-      const glow = 0.85 + Math.sin(pulseT) * 0.25;
+      swayUniform.value = pulseT * 0.55;
+      const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
       for (const mat of emissiveMats) mat.emissiveIntensity = glow;
-      controls.update();
+      updateBodyLanguage(dt, now);
+      camera.lookAt(orbitTarget);
       renderer.render(scene, camera);
       cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, mount, resize, controls };
+    cortanaGLB = { scene, camera, renderer, model, bodyRoot, mount, resize, spinState, bodyPose };
+    window.cortanaGLB = cortanaGLB;
     cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
     console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);
@@ -2449,6 +2703,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>
-<script src="galaxy.js?v=20260715-corelink"></script>
+<script src="galaxy.js?v=20260729-holotank"></script>
 </body>
 </html>

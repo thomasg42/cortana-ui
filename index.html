@@ -1523,10 +1523,9 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   return { points, geometry, material, update, count };
 }
 
-/* The production GLB is still one solid mesh (no skeleton / clips / morphs).
-   Soft regional "ligament" warps in the vertex shader approximate independent
-   head, arm, and leg motion. A front speech plane supplies the mouth contract
-   during speaking only. */
+/* The production GLB is one solid mesh (no skeleton / clips / morphs). Soft
+   regional limb warps were tried and pulled — they demorphed forearms and
+   knees. Motion stays whole-body lean/sway + speech face until a skinned GLB. */
 function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
   const faceCanvas = document.createElement('canvas');
   faceCanvas.width = 256;
@@ -1676,22 +1675,6 @@ async function loadCortanaRig() {
     const swayUniform = { value: 0 };
     const talkUniform = { value: 0 };
     const flickerUniform = { value: 1 };
-    /* Soft "ligament" fields on an unskinned mesh: regional warps around
-       approximate joints (neck, shoulders, elbows, hips, knees). Not a real
-       skeleton — still reads as independent head / arm / leg motion. */
-    const ligament = {
-      headNod: { value: 0 },
-      headTilt: { value: 0 },
-      headTurn: { value: 0 },
-      armSwingR: { value: 0 },
-      armSwingL: { value: 0 },
-      elbowR: { value: 0 },
-      elbowL: { value: 0 },
-      legSwingR: { value: 0 },
-      legSwingL: { value: 0 },
-      kneeR: { value: 0 },
-      kneeL: { value: 0 },
-    };
     let emissiveMats = [];
 
     model.traverse((node) => {
@@ -1721,72 +1704,15 @@ async function loadCortanaRig() {
           shader.uniforms.uFlicker = flickerUniform;
           shader.uniforms.uMinY = { value: box0.min.y };
           shader.uniforms.uMaxY = { value: box0.max.y };
-          shader.uniforms.uHalfW = { value: modelWidth * 0.5 };
-          shader.uniforms.uHeadNod = ligament.headNod;
-          shader.uniforms.uHeadTilt = ligament.headTilt;
-          shader.uniforms.uHeadTurn = ligament.headTurn;
-          shader.uniforms.uArmSwingR = ligament.armSwingR;
-          shader.uniforms.uArmSwingL = ligament.armSwingL;
-          shader.uniforms.uElbowR = ligament.elbowR;
-          shader.uniforms.uElbowL = ligament.elbowL;
-          shader.uniforms.uLegSwingR = ligament.legSwingR;
-          shader.uniforms.uLegSwingL = ligament.legSwingL;
-          shader.uniforms.uKneeR = ligament.kneeR;
-          shader.uniforms.uKneeL = ligament.kneeL;
-          shader.vertexShader =
-            'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' +
-            'uniform float uHalfW;\n' +
-            'uniform float uHeadNod;\nuniform float uHeadTilt;\nuniform float uHeadTurn;\n' +
-            'uniform float uArmSwingR;\nuniform float uArmSwingL;\nuniform float uElbowR;\nuniform float uElbowL;\n' +
-            'uniform float uLegSwingR;\nuniform float uLegSwingL;\nuniform float uKneeR;\nuniform float uKneeL;\n' +
-            shader.vertexShader;
+          shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
           shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
-            float h = max(uMaxY - uMinY, 0.0001);
-            float swayT = clamp((position.y - uMinY) / h, 0.0, 1.0);
-            float sideX = position.x / max(uHalfW, 0.0001);
-            float armSide = sign(position.x + 0.0001);
-            /* Soft whole-body hologram breathe — kept lighter so ligaments lead. */
-            transformed.x += swayT * swayT * (0.018 + uTalk * 0.02) * sin(uSway);
-            transformed.z += swayT * swayT * (0.012 + uTalk * 0.015) * cos(uSway * 0.85);
-
-            /* ---- HEAD (neck pivot ~0.82) ---- */
-            float headMask = smoothstep(0.78, 0.88, swayT);
-            float neck = max(0.0, swayT - 0.80);
-            transformed.z += headMask * (uHeadNod * neck * h * 1.15);
-            transformed.x += headMask * (uHeadTilt * neck * h * 0.95 + uHeadTurn * neck * h * 0.55);
-            transformed.y += headMask * (-uHeadNod * neck * h * 0.18);
-
-            /* ---- ARMS (shoulder ~0.72, elbow band ~0.55) ---- */
-            float armVert = smoothstep(0.42, 0.55, swayT) * (1.0 - smoothstep(0.78, 0.90, swayT));
-            float armLat = smoothstep(0.22, 0.48, abs(sideX));
-            float armMask = armVert * armLat;
-            float elbowMask = smoothstep(0.42, 0.52, swayT) * (1.0 - smoothstep(0.60, 0.72, swayT)) * armLat;
-            float armSwing = mix(uArmSwingL, uArmSwingR, step(0.0, position.x));
-            float elbow = mix(uElbowL, uElbowR, step(0.0, position.x));
-            float shoulderDrop = max(0.0, 0.74 - swayT);
-            transformed.z += armMask * armSwing * shoulderDrop * h * 1.35;
-            transformed.x += armMask * armSide * abs(armSwing) * shoulderDrop * h * 0.35;
-            transformed.y += armMask * armSwing * 0.08 * h;
-            /* Forearm hinge — forward curl at the elbow band. */
-            transformed.z += elbowMask * elbow * h * 0.95;
-            transformed.y += elbowMask * elbow * h * 0.22;
-            transformed.x += elbowMask * armSide * elbow * h * 0.12;
-
-            /* ---- LEGS (hip ~0.42, knee ~0.22) ---- */
-            float legVert = (1.0 - smoothstep(0.40, 0.52, swayT)) * smoothstep(0.02, 0.12, swayT);
-            float legLat = smoothstep(0.08, 0.32, abs(sideX));
-            float legMask = legVert * legLat;
-            float kneeMask = smoothstep(0.12, 0.20, swayT) * (1.0 - smoothstep(0.28, 0.38, swayT)) * legLat;
-            float legSwing = mix(uLegSwingL, uLegSwingR, step(0.0, position.x));
-            float knee = mix(uKneeL, uKneeR, step(0.0, position.x));
-            float hipDrop = max(0.0, 0.44 - swayT);
-            transformed.z += legMask * legSwing * hipDrop * h * 1.1;
-            transformed.x += legMask * armSide * abs(legSwing) * hipDrop * h * 0.22;
-            /* Knee bend: shin pulls slightly back + up. */
-            transformed.z += kneeMask * (-knee) * h * 0.85;
-            transformed.y += kneeMask * knee * h * 0.12;`
+            float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
+            /* Whole-body hologram sway only — no regional limb warps.
+               Soft elbow/knee bands demorphed the 4K mesh; real joints need a skinned GLB. */
+            transformed.x += swayT * swayT * (0.035 + uTalk * 0.04) * sin(uSway);
+            transformed.z += swayT * swayT * (0.022 + uTalk * 0.03) * cos(uSway * 0.85);`
           );
           shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
           shader.fragmentShader = shader.fragmentShader.replace(
@@ -1924,68 +1850,7 @@ async function loadCortanaRig() {
     const bodyPose = {
       floatY: 0, leanX: 0, leanZ: 0, yaw: 0, roll: 0,
       targetLeanX: 0, targetLeanZ: 0, targetYaw: 0, targetRoll: 0,
-      headNod: 0, headTilt: 0, headTurn: 0,
-      armSwingR: 0, armSwingL: 0, elbowR: 0, elbowL: 0,
-      legSwingR: 0, legSwingL: 0, kneeR: 0, kneeL: 0,
-      targetHeadNod: 0, targetHeadTilt: 0, targetHeadTurn: 0,
-      targetArmSwingR: 0, targetArmSwingL: 0, targetElbowR: 0, targetElbowL: 0,
-      targetLegSwingR: 0, targetLegSwingL: 0, targetKneeR: 0, targetKneeL: 0,
     };
-
-    function setLigamentTargets(state, t, intent) {
-      const emphatic = intent === 'emphatic';
-      const caring = intent === 'caring';
-      if (state === 'idle') {
-        bodyPose.targetHeadNod = Math.sin(t * 0.7) * 0.045;
-        bodyPose.targetHeadTilt = Math.sin(t * 0.45) * 0.05;
-        bodyPose.targetHeadTurn = Math.sin(t * 0.32) * 0.035;
-        bodyPose.targetArmSwingR = Math.sin(t * 0.85) * 0.07;
-        bodyPose.targetArmSwingL = Math.sin(t * 0.85 + 1.4) * 0.06;
-        bodyPose.targetElbowR = 0.04 + Math.sin(t * 0.9) * 0.03;
-        bodyPose.targetElbowL = 0.04 + Math.sin(t * 0.9 + 1.1) * 0.03;
-        bodyPose.targetLegSwingR = Math.sin(t * 0.38) * 0.045;
-        bodyPose.targetLegSwingL = Math.sin(t * 0.38 + Math.PI) * 0.045;
-        bodyPose.targetKneeR = 0.03 + Math.sin(t * 0.5) * 0.02;
-        bodyPose.targetKneeL = 0.03 + Math.sin(t * 0.5 + Math.PI) * 0.02;
-      } else if (state === 'listening') {
-        bodyPose.targetHeadNod = 0.06 + Math.sin(t * 1.2) * 0.03;
-        bodyPose.targetHeadTilt = 0.08 + Math.sin(t * 0.9) * 0.025;
-        bodyPose.targetHeadTurn = Math.sin(t * 0.7) * 0.04;
-        bodyPose.targetArmSwingR = 0.05 + Math.sin(t * 1.0) * 0.03;
-        bodyPose.targetArmSwingL = -0.04 + Math.sin(t * 1.0 + 0.8) * 0.03;
-        bodyPose.targetElbowR = 0.12 + Math.sin(t * 1.1) * 0.04;
-        bodyPose.targetElbowL = 0.10 + Math.sin(t * 1.1 + 0.6) * 0.04;
-        bodyPose.targetLegSwingR = 0.03;
-        bodyPose.targetLegSwingL = -0.02;
-        bodyPose.targetKneeR = 0.05;
-        bodyPose.targetKneeL = 0.04;
-      } else if (state === 'thinking') {
-        bodyPose.targetHeadNod = 0.1 + Math.sin(t * 0.8) * 0.03;
-        bodyPose.targetHeadTilt = -0.12 + Math.sin(t * 0.6) * 0.02;
-        bodyPose.targetHeadTurn = -0.08;
-        bodyPose.targetArmSwingR = 0.22 + Math.sin(t * 1.3) * 0.04;
-        bodyPose.targetArmSwingL = -0.06;
-        bodyPose.targetElbowR = 0.38 + Math.sin(t * 1.4) * 0.05;
-        bodyPose.targetElbowL = 0.18;
-        bodyPose.targetLegSwingR = 0.04;
-        bodyPose.targetLegSwingL = -0.05;
-        bodyPose.targetKneeR = 0.08;
-        bodyPose.targetKneeL = 0.06;
-      } else if (state === 'speaking') {
-        const amp = emphatic ? 1.55 : caring ? 0.72 : 1;
-        bodyPose.targetHeadNod = (0.04 + Math.sin(t * 3.6) * 0.07) * amp;
-        bodyPose.targetHeadTilt = Math.sin(t * 2.4) * 0.06 * amp;
-        bodyPose.targetHeadTurn = Math.sin(t * 2.0) * 0.05 * amp;
-        bodyPose.targetArmSwingR = (0.08 + Math.sin(t * 2.8) * 0.14) * amp;
-        bodyPose.targetArmSwingL = (-0.05 + Math.sin(t * 2.5 + 1.6) * 0.11) * amp;
-        bodyPose.targetElbowR = (caring ? 0.22 : 0.14 + Math.sin(t * 3.1) * 0.12) * amp;
-        bodyPose.targetElbowL = (caring ? 0.2 : 0.12 + Math.sin(t * 2.7 + 1.2) * 0.1) * amp;
-        bodyPose.targetLegSwingR = Math.sin(t * 1.6) * 0.055 * amp;
-        bodyPose.targetLegSwingL = Math.sin(t * 1.6 + Math.PI) * 0.055 * amp;
-        bodyPose.targetKneeR = 0.05 + Math.sin(t * 1.8) * 0.03 * amp;
-        bodyPose.targetKneeL = 0.05 + Math.sin(t * 1.8 + Math.PI) * 0.03 * amp;
-      }
-    }
 
     function updateBodyLanguage(dt, now, orbitDt) {
       const state = currentState || 'idle';
@@ -2025,45 +1890,17 @@ async function loadCortanaRig() {
         bodyPose.targetRoll = (caring ? -0.035 : 0) + Math.sin(t * 2.8) * 0.04 * amp;
       }
 
-      setLigamentTargets(state, t, avatar.dataset.intent || 'neutral');
-
       if (spinState.dragging && spinState.grabSide) {
         bodyPose.targetLeanX += spinState.grabSide * 0.16;
         bodyPose.targetRoll += spinState.grabSide * 0.09;
         bodyPose.targetYaw += spinState.grabSide * 0.12;
-        bodyPose.targetArmSwingR += spinState.grabSide > 0 ? 0.18 : 0.04;
-        bodyPose.targetArmSwingL += spinState.grabSide < 0 ? 0.18 : 0.04;
-        bodyPose.targetHeadTurn += spinState.grabSide * 0.08;
       }
 
       const ease = 1 - Math.exp(-dt * 5.5);
-      const ligEase = 1 - Math.exp(-dt * 6.2);
       bodyPose.leanX += (bodyPose.targetLeanX - bodyPose.leanX) * ease;
       bodyPose.leanZ += (bodyPose.targetLeanZ - bodyPose.leanZ) * ease;
       bodyPose.yaw += (bodyPose.targetYaw - bodyPose.yaw) * ease;
       bodyPose.roll += (bodyPose.targetRoll - bodyPose.roll) * ease;
-      bodyPose.headNod += (bodyPose.targetHeadNod - bodyPose.headNod) * ligEase;
-      bodyPose.headTilt += (bodyPose.targetHeadTilt - bodyPose.headTilt) * ligEase;
-      bodyPose.headTurn += (bodyPose.targetHeadTurn - bodyPose.headTurn) * ligEase;
-      bodyPose.armSwingR += (bodyPose.targetArmSwingR - bodyPose.armSwingR) * ligEase;
-      bodyPose.armSwingL += (bodyPose.targetArmSwingL - bodyPose.armSwingL) * ligEase;
-      bodyPose.elbowR += (bodyPose.targetElbowR - bodyPose.elbowR) * ligEase;
-      bodyPose.elbowL += (bodyPose.targetElbowL - bodyPose.elbowL) * ligEase;
-      bodyPose.legSwingR += (bodyPose.targetLegSwingR - bodyPose.legSwingR) * ligEase;
-      bodyPose.legSwingL += (bodyPose.targetLegSwingL - bodyPose.legSwingL) * ligEase;
-      bodyPose.kneeR += (bodyPose.targetKneeR - bodyPose.kneeR) * ligEase;
-      bodyPose.kneeL += (bodyPose.targetKneeL - bodyPose.kneeL) * ligEase;
-      ligament.headNod.value = bodyPose.headNod;
-      ligament.headTilt.value = bodyPose.headTilt;
-      ligament.headTurn.value = bodyPose.headTurn;
-      ligament.armSwingR.value = bodyPose.armSwingR;
-      ligament.armSwingL.value = bodyPose.armSwingL;
-      ligament.elbowR.value = bodyPose.elbowR;
-      ligament.elbowL.value = bodyPose.elbowL;
-      ligament.legSwingR.value = bodyPose.legSwingR;
-      ligament.legSwingL.value = bodyPose.legSwingL;
-      ligament.kneeR.value = bodyPose.kneeR;
-      ligament.kneeL.value = bodyPose.kneeL;
       bodyPose.floatY = Math.sin(t * 1.15) * modelHeight * 0.012 + (state === 'speaking' ? Math.sin(t * 6.5) * modelHeight * 0.006 : 0);
 
       const interacting = state !== 'idle';
@@ -2126,10 +1963,10 @@ async function loadCortanaRig() {
       cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, speechFace, mount, resize, spinState, bodyPose, ligament };
+    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, speechFace, mount, resize, spinState, bodyPose };
     window.cortanaGLB = cortanaGLB;
     avatar.dataset.glbReady = 'true';
-    avatar.dataset.ligaments = 'soft-regional';
+    avatar.dataset.ligaments = 'none';
     cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
     console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);

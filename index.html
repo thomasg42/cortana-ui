@@ -892,8 +892,12 @@ function lsGet(key, legacyKey) {
   const jsonResponse = (data, status = 200) => Promise.resolve(new Response(JSON.stringify(data), {
     status, headers: { 'Content-Type': 'application/json' },
   }));
-  const isConnected = () => localStorage.getItem(CONNECTED_KEY) === '1';
+  /* The saved flag is a hint for returning visitors, never proof. Only a
+     fresh /api/remote/status probe in THIS session may show "Core Live". */
+  let liveVerified = false;
+  const isConnected = () => liveVerified;
   const setCoreState = (online) => {
+    liveVerified = !!online;
     window.CORTANA_STATIC_MODE = !online;
     if (online) localStorage.setItem(CONNECTED_KEY, '1');
     else localStorage.removeItem(CONNECTED_KEY);
@@ -1056,7 +1060,12 @@ function lsGet(key, legacyKey) {
       }
     });
   }
-  setCoreState(isConnected());
+  setCoreState(false);
+  /* Fresh network verification on every load — "Core Live" must never be
+     resurrected from a stale localStorage flag when the Core is unreachable.
+     Success dispatches cortana:remote-connected, which refreshes the exact
+     ready-model readout via buildSwitchboard(). */
+  ensureRemoteSession();
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1742,9 +1751,13 @@ async function loadCortanaRig() {
       mats.forEach((mat, idx) => {
         const holo = mat.clone();
         holo.transparent = true;
-        holo.opacity = 0.9;
-        holo.depthWrite = false;
-        holo.side = THREE.DoubleSide;
+        holo.opacity = 0.94;
+        /* Self-occlusion is required for readable rotation. The previous
+           depthWrite:false DoubleSide ghost blended her far side through her
+           near side, so a mathematically monotonic orbit still LOOKED like a
+           ~180° reversal with a face swap (silhouette-ambiguity illusion). */
+        holo.depthWrite = true;
+        holo.side = THREE.FrontSide;
         if ('emissive' in holo) {
           holo.emissive = new THREE.Color(0x4eb8ff);
           holo.emissiveIntensity = 0.72;
@@ -1819,15 +1832,23 @@ async function loadCortanaRig() {
       grabSide: 0,
       resumeAt: performance.now(),
       focusYaw: 0,
+      focusFrom: 0,
+      focusStartedAt: 0,
+      focusDuration: 500,
       wasInteracting: false,
       qaAt: 0,
     };
     const TAU = Math.PI * 2;
-    function nextForwardFront(yaw) {
-      const turns = yaw / TAU;
-      const nearest = Math.round(turns);
-      if (Math.abs(turns - nearest) < 0.018) return nearest * TAU;
-      return Math.ceil(turns) * TAU;
+    /* The moment Chief starts talking she turns to the NEAREST screen-facing
+       yaw (shortest path, like a person turning to face you) and arrives in
+       roughly 400–600 ms. The old "continue forward to the next full 2π"
+       rule kept her orbiting for seconds after the conversation had begun. */
+    function beginFocus(now) {
+      spinState.focusYaw = Math.round(spinState.yaw / TAU) * TAU;
+      spinState.focusFrom = spinState.yaw;
+      spinState.focusStartedAt = now;
+      const dist = Math.abs(spinState.focusYaw - spinState.focusFrom);
+      spinState.focusDuration = 400 + (dist / Math.PI) * 200; // 600ms at a half turn
     }
 
     const raycaster = new THREE.Raycaster();
@@ -1865,7 +1886,7 @@ async function loadCortanaRig() {
       spinState.dragging = false;
       spinState.grabSide = 0;
       spinState.resumeAt = performance.now() + 900;
-      if ((currentState || 'idle') !== 'idle') spinState.focusYaw = nextForwardFront(spinState.yaw);
+      if ((currentState || 'idle') !== 'idle') beginFocus(performance.now());
       canvas.style.cursor = 'grab';
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
     }
@@ -1946,17 +1967,17 @@ async function loadCortanaRig() {
       bodyPose.floatY = Math.sin(t * 1.15) * modelHeight * 0.012 + (state === 'speaking' ? Math.sin(t * 6.5) * modelHeight * 0.006 : 0);
 
       const interacting = state !== 'idle';
-      if (interacting && !spinState.wasInteracting) {
-        /* Keep turning in the same direction to the next front-facing position.
-           This avoids the backwards snap that a shortest-path angle creates. */
-        spinState.focusYaw = nextForwardFront(spinState.yaw);
-      }
+      if (interacting && !spinState.wasInteracting) beginFocus(now);
       if (!spinState.dragging) {
         if (interacting) {
+          /* Face-the-screen tween, then a hard yaw lock: zero orbit progress
+             while Chief is listening/thinking/speaking with her. Visemes and
+             whole-body intent motion continue on top of the locked yaw, and
+             idle later resumes forward from this exact front-facing angle. */
           spinState.auto = false;
-          const remaining = Math.max(0, spinState.focusYaw - spinState.yaw);
-          const focusSpeed = THREE.MathUtils.clamp(remaining * 4.8, 0.5, 3.4);
-          spinState.yaw += Math.min(remaining, focusSpeed * dt);
+          const k = Math.min(1, (now - spinState.focusStartedAt) / spinState.focusDuration);
+          const eased = 1 - Math.pow(1 - k, 3);
+          spinState.yaw = spinState.focusFrom + (spinState.focusYaw - spinState.focusFrom) * eased;
         } else if (now > spinState.resumeAt) {
           spinState.auto = true;
           /* Idle is one uninterrupted orbit. No modulo/reset or CSS transform
@@ -2205,9 +2226,27 @@ async function buildSwitchboard() {
   try {
     const res = await fetch('/api/models');
     switchboard = await res.json();
-  } catch (_) { /* server offline — active readout stays honest */ }
+  } catch (_) { switchboard = null; /* server offline — active readout stays honest */ }
   renderSysPanel();
+  renderReadyLlmStatus();
 }
+
+/* On load/connect, immediately show the exact provider + model that would
+   answer right now (the funded GPT lane is the server's general default).
+   Every real reply then overwrites this with the exact model from its own
+   routing metadata. "No LLM active" survives only when nothing is ready. */
+function renderReadyLlmStatus() {
+  const providers = (switchboard && switchboard.providers) || [];
+  const ready = providers.filter((p) => p.ready);
+  const pick = ready.find((p) => p.id === 'openai') || ready[0];
+  if (!pick) {
+    renderLlmStatus({ vendor: '', model: 'No LLM active', brain: 'FGA Ops Brain // Obsidian ready', tools: false });
+    return;
+  }
+  renderLlmStatus({ vendor: pick.vendor || pick.label, model: pick.model, tools: !!pick.tools });
+}
+
+window.addEventListener('cortana:remote-connected', () => buildSwitchboard());
 
 function renderLlmStatus(routing) {
   if (!routing) return;

@@ -101,11 +101,12 @@ body:not(.galaxy-view) #projBase {
   display: none;
 }
 
-/* Large floating figure shifted left, clear of the right command channel. */
+/* Large floating figure shifted left, clear of the right command channel.
+   top keeps her crown under the CORE / GALAXY toggle instead of through it. */
 body:not(.galaxy-view) #cortanaAvatar {
   left: 44%;
-  top: 2vh;
-  bottom: 12vh;
+  top: 10vh;
+  bottom: 10vh;
   width: min(36vw, 520px);
   opacity: 1;
   pointer-events: auto;
@@ -422,7 +423,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: 260px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 43%; width: min(35vw, 455px); top: 4vh; bottom: 15vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 43%; width: min(35vw, 455px); top: 11vh; bottom: 13vh; }
   body:not(.galaxy-view) #holoField { bottom: 158px; }
   body:not(.galaxy-view) .holoCard:nth-child(n + 3) { display: none; }
 }
@@ -445,7 +446,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: auto; right: 12px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 41.5%; width: min(38vw, 380px); top: 6vh; bottom: 18vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 41.5%; width: min(38vw, 380px); top: 12vh; bottom: 16vh; }
   #missionDoctrine { min-height: 138px; }
   #missionDoctrine strong { font-size: 11px; }
 }

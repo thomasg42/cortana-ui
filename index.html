@@ -679,7 +679,7 @@
     #orbStatus { bottom: 134px; }
   }
 </style>
-<link rel="stylesheet" href="core-visual.css?v=20260729-holotank" />
+<link rel="stylesheet" href="core-visual.css?v=20260729-pos-cyan" />
 </head>
 <body>
 <div id="missionBackdrop" aria-hidden="true"></div>
@@ -1759,9 +1759,12 @@ async function loadCortanaRig() {
         holo.depthWrite = true;
         holo.side = THREE.FrontSide;
         if ('emissive' in holo) {
-          holo.emissive = new THREE.Color(0x4eb8ff);
-          holo.emissiveIntensity = 0.72;
+          holo.emissive = new THREE.Color(0x6ecfff);
+          holo.emissiveIntensity = 0.82;
         }
+        /* Keep the baked glow silhouette, but force Cortana cyan — the stock
+           emissive map paints a gold/orange "obsidian" cluster on her hip that
+           fights the rest of her body palette. */
         if (holo.emissiveMap) emissiveMats.push(holo);
         holo.onBeforeCompile = (shader) => {
           shader.uniforms.uSway = swayUniform;
@@ -1789,6 +1792,11 @@ async function loadCortanaRig() {
             /* Hard-light wash + soft flicker — no traveling scan. */
             vec3 holoTint = vec3(0.45, 0.82, 1.0);
             gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + holoTint * 0.22, 0.55) * (0.86 + 0.14 * uFlicker);
+            /* Gold/orange baked emissive → Cortana cyan (keep luminance, force hue). */
+            float luma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+            float warmBias = smoothstep(0.04, 0.28, max(gl_FragColor.r, gl_FragColor.g) - gl_FragColor.b);
+            vec3 cortanaCyan = vec3(0.38, 0.84, 1.0) * luma * 1.45;
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, cortanaCyan, warmBias);
             gl_FragColor.a *= 0.78 + 0.14 * uFlicker;`
           );
         };

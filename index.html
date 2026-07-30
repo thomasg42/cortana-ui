@@ -514,7 +514,7 @@
     white-space: pre-wrap; backdrop-filter: blur(8px);
   }
   .msg.thomas { align-self: flex-end; background: rgba(53,255,157,0.12); border: 1px solid var(--line); color: #eafff3; }
-  .msg.jarvis { align-self: flex-start; background: rgba(6,20,14,0.85); border: 1px solid rgba(255,196,46,0.25); color: var(--ink); }
+  .msg.cortana { align-self: flex-start; background: rgba(6,20,14,0.85); border: 1px solid rgba(255,196,46,0.25); color: var(--ink); }
   .msg.system { align-self: center; background: none; color: var(--muted); font-size: 12px; }
 
   #contextChips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -561,7 +561,7 @@
   .mpill:disabled { opacity: .3; cursor: default; text-decoration: line-through; }
   #switchRow .divider { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
 
-  /* Routing badge on Jarvis replies */
+  /* Routing badge on Cortana replies */
   .routeTag {
     display: block; font-size: 9px; letter-spacing: .22em; text-transform: uppercase;
     color: var(--gold); opacity: .8; margin-bottom: 5px;
@@ -641,8 +641,10 @@
     #orbStatus { bottom: 134px; }
   }
 </style>
+<link rel="stylesheet" href="core-visual.css?v=20260729-mission-deck" />
 </head>
 <body>
+<div id="missionBackdrop" aria-hidden="true"></div>
 <div id="stars"></div>
 <div id="haloRing"></div>
 <div id="holoField"></div>
@@ -759,6 +761,15 @@
     <strong>PROTECT THE MISSION.<br />PROTECT THE PEOPLE.<br /><em>WE FINISH THE FIGHT.</em></strong>
   </div>
 </aside>
+<aside id="missionDoctrine" aria-label="Cortana mission doctrine">
+  <span class="doctrineKicker">Cortana Core // Mission Doctrine</span>
+  <strong>
+    <span>Protect the mission.</span>
+    <span>Protect the people.</span>
+    <span class="finish">Finish the fight.</span>
+  </strong>
+  <span class="doctrineFooter">Focus // Courage // Completion</span>
+</aside>
 <canvas id="orbCanvas"></canvas>
 <div id="hudGrid"></div>
 <div id="scanlines"></div>
@@ -818,6 +829,16 @@
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260715-corelink"></script>
 <script>
+function lsGet(key, legacyKey) {
+  const v = localStorage.getItem(key);
+  if (v !== null) return v;
+  if (legacyKey) {
+    const old = localStorage.getItem(legacyKey);
+    if (old !== null) { localStorage.setItem(key, old); return old; }
+  }
+  return null;
+}
+
 /* Public mode keeps the privacy-safe static Galaxy as the default view. Chief
    (or any visitor) can click CORE LINK to switch straight to the live private
    core over the remote tunnel — no code, no login, no bearer token. */
@@ -981,7 +1002,7 @@
       const connected = await ensureRemoteSession();
       if (connected) {
         buildSwitchboard();
-        if (window.jarvisRefreshGalaxy) window.jarvisRefreshGalaxy();
+        if (window.cortanaRefreshGalaxy) window.cortanaRefreshGalaxy();
         addMsg('Private core connected. Live voice, vault, memory, calendar, web, and tools are online.', 'system');
       } else {
         addMsg('Private core is unreachable right now. Public display mode remains active.', 'system');
@@ -1085,7 +1106,7 @@ const coreVertexShader = noiseGLSL + `
   void main() {
     vec3 pos = position;
     // Speech ripples: low-frequency swell + high-frequency chatter, both
-    // scaled by audioLevel so the surface visibly moves when Jarvis talks
+    // scaled by audioLevel so the surface visibly moves when Cortana talks
     float swell = snoise(position * 1.6 + time * 0.4) * 0.02;
     float chatter = snoise(position * 5.0 + time * 2.2) * 0.03;
     float distortion = (swell + chatter * audioLevel) * (0.25 + audioLevel * 1.1);
@@ -1315,7 +1336,7 @@ graphRaycaster.params.Points = { threshold: 0.05 };
 const pointerNDC = new THREE.Vector2();
 
 function pickGraphNode(e) {
-  if (!vaultGraph || window.jarvisGalaxyActive) return null;
+  if (!vaultGraph || window.cortanaGalaxyActive) return null;
   pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
   graphRaycaster.setFromCamera(pointerNDC, camera);
@@ -1585,7 +1606,7 @@ function initCortanaMotion() {
   loadCortanaRig();
   let lastPointerAt = 0;
   window.addEventListener('pointermove', (e) => {
-    if (window.jarvisGalaxyActive) {
+    if (window.cortanaGalaxyActive) {
       body.style.setProperty('--look-x', '0px');
       body.style.setProperty('--look-y', '0px');
       body.style.setProperty('--eye-x', '0px');
@@ -1601,12 +1622,12 @@ function initCortanaMotion() {
     body.style.setProperty('--eye-y', `${(y * .16).toFixed(1)}px`);
   }, { passive: true });
   setInterval(() => {
-    if (window.jarvisGalaxyActive || Date.now() - lastPointerAt < 1800) return;
+    if (window.cortanaGalaxyActive || Date.now() - lastPointerAt < 1800) return;
     body.style.setProperty('--eye-x', `${(-1.8 + Math.random() * 3.6).toFixed(1)}px`);
     body.style.setProperty('--eye-y', `${(-.7 + Math.random() * 1.4).toFixed(1)}px`);
   }, 2300);
   setInterval(() => {
-    if (window.jarvisGalaxyActive || currentState !== 'idle') return;
+    if (window.cortanaGalaxyActive || currentState !== 'idle') return;
     avatar.classList.add('gesture');
     setTimeout(() => avatar.classList.remove('gesture'), 2400);
   }, 8200);
@@ -1642,7 +1663,7 @@ function animate() {
   currentScale += (targetScale - currentScale) * 0.15;
 
   // Audio level eases toward the state target, modulated by speech cadence
-  // so surface ripples follow the rhythm of Jarvis's voice
+  // so surface ripples follow the rhythm of Cortana's voice
   const targetAudio = state.audioLevel * (state.pulsateMode === 'cadence' ? 0.45 + cadence * 0.75 : 1.0);
   currentAudio_lvl += (targetAudio - currentAudio_lvl) * 0.12;
 
@@ -1663,7 +1684,7 @@ function animate() {
     vaultGraph.position.y = bobY;
     vaultGraph.scale.setScalar(currentScale);
   }
-  if (window.jarvisGalaxyTick) window.jarvisGalaxyTick();
+  if (window.cortanaGalaxyTick) window.cortanaGalaxyTick();
   renderer.render(scene, camera);
 }
 
@@ -1675,11 +1696,11 @@ const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const contextChips = document.getElementById('contextChips');
 let contextFiles = []; // vault paths attached to conversation
-let ttsEnabled = localStorage.getItem('jarvis-tts') !== 'off';
+let ttsEnabled = lsGet('cortana-tts', 'jarvis-tts') !== 'off';
 
 /* ===== Model switchboard state ===== */
-let selectedModel = localStorage.getItem('jarvis-model') || 'auto';
-let selectedEffort = localStorage.getItem('jarvis-effort') || 'auto';
+let selectedModel = lsGet('cortana-model', 'jarvis-model') || 'auto';
+let selectedEffort = lsGet('cortana-effort', 'jarvis-effort') || 'auto';
 let switchboard = null; // /api/models payload
 const MODEL_SHORT = { claude: 'Claude', haiku: 'Haiku', fable: 'Fable', openai: 'GPT', grok: 'Grok', perplexity: 'PPLX' };
 const EFFORT_SHORT = { low: 'Low', medium: 'Med', high: 'High', xhigh: 'X-Hi', max: 'Max' };
@@ -1694,8 +1715,8 @@ async function buildSwitchboard() {
 }
 
 function persistSwitch() {
-  localStorage.setItem('jarvis-model', selectedModel);
-  localStorage.setItem('jarvis-effort', selectedEffort);
+  localStorage.setItem('cortana-model', selectedModel);
+  localStorage.setItem('cortana-effort', selectedEffort);
   renderPills();
 }
 
@@ -1818,7 +1839,7 @@ function renderSysPanel() {
 function addMsg(text, who, routing) {
   const div = document.createElement('div');
   div.className = 'msg ' + who;
-  if (who === 'jarvis' && routing && routing.label) {
+  if (who === 'cortana' && routing && routing.label) {
     const tag = document.createElement('span');
     tag.className = 'routeTag';
     tag.textContent = '◈ ' + routing.label + (routing.model ? ' · ' + routing.model : '') + (routing.effort ? ' · ' + routing.effort : '');
@@ -1994,8 +2015,8 @@ async function speak(text) {
 async function sendMessage(text) {
   text = (text || '').trim();
   if (!text) return;
-  if (/^remember\s+that\b/i.test(text) && window.jarvisRemember) {
-    window.jarvisRemember(text);
+  if (/^remember\s+that\b/i.test(text) && window.cortanaRemember) {
+    window.cortanaRemember(text);
     return;
   }
   stopSpeaking();  // Chief has the floor — cut off any answer still playing
@@ -2012,13 +2033,14 @@ async function sendMessage(text) {
     const raw = await res.text();
     if (!res.ok) throw new Error(raw || res.statusText);
     const data = JSON.parse(raw);
+    const spoken = data.speakText || data.reply; // routing/guardrail banners stay text-only, never spoken
     setState('speaking');
-    setSpeakingTone(data.reply);
-    startLipSync(data.reply);
-    addMsg(data.reply, 'jarvis', data.routing);
-    if (window.jarvisTraceSources) window.jarvisTraceSources(data.sources || []);
-    speak(data.reply);
-    if (!ttsEnabled) setTimeout(() => { if (currentState === 'speaking') setState(restState()); }, Math.min(6000, 1500 + data.reply.length * 15));
+    setSpeakingTone(spoken);
+    startLipSync(spoken);
+    addMsg(data.reply, 'cortana', data.routing);
+    if (window.cortanaTraceSources) window.cortanaTraceSources(data.sources || []);
+    speak(spoken);
+    if (!ttsEnabled) setTimeout(() => { if (currentState === 'speaking') setState(restState()); }, Math.min(6000, 1500 + spoken.length * 15));
   } catch (err) {
     addMsg('⚠ ' + err.message, 'system');
     doneSpeaking();
@@ -2039,7 +2061,7 @@ const ttsBtn = document.getElementById('tts');
 function renderTts() { ttsBtn.textContent = ttsEnabled ? '🔊' : '🔇'; ttsBtn.classList.toggle('off', !ttsEnabled); }
 ttsBtn.addEventListener('click', () => {
   ttsEnabled = !ttsEnabled;
-  localStorage.setItem('jarvis-tts', ttsEnabled ? 'on' : 'off');
+  localStorage.setItem('cortana-tts', ttsEnabled ? 'on' : 'off');
   if (!ttsEnabled) { stopSpeaking(); if (currentState === 'speaking') setState('idle'); }
   renderTts();
 });
@@ -2059,8 +2081,8 @@ if (coreStage) {
 }
 
 /* Mic — continuous conversation mode.
-   Click once: mic stays live. Speak → Jarvis answers → mic resumes listening.
-   While Jarvis is thinking or speaking, recognition is fully paused (aborted)
+   Click once: mic stays live. Speak → Cortana answers → mic resumes listening.
+   While Cortana is thinking or speaking, recognition is fully paused (aborted)
    so he can never hear his own voice. Click again to end the conversation. */
 const micBtn = document.getElementById('mic');
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2148,7 +2170,7 @@ function startRecognition() {
   };
   recognition.onend = () => {
     // Chrome kills continuous recognition periodically — restart while live,
-    // but stay quiet while paused (Jarvis thinking/speaking)
+    // but stay quiet while paused (Cortana thinking/speaking)
     if (convoMode && !micPaused) { try { recognition.start(); } catch (_) { setTimeout(() => convoMode && !micPaused && startRecognition(), 300); } }
     else if (!convoMode) { micBtn.classList.remove('listening'); if (currentState === 'listening') setState('idle'); }
   };
@@ -2309,12 +2331,12 @@ OPS.forEach((op, i) => {
 const opsToggle = document.getElementById('opsToggle');
 function setOpsOpen(open) {
   opsDock.classList.toggle('open', open);
-  localStorage.setItem('jarvis-ops', open ? 'open' : 'closed');
+  localStorage.setItem('cortana-ops', open ? 'open' : 'closed');
 }
 opsToggle.addEventListener('click', () => setOpsOpen(!opsDock.classList.contains('open')));
 // Default: open on desktop, closed on mobile — remembered across sessions
-setOpsOpen(localStorage.getItem('jarvis-ops') === 'open' ||
-  (localStorage.getItem('jarvis-ops') === null && window.innerWidth > 720));
+setOpsOpen(lsGet('cortana-ops', 'jarvis-ops') === 'open' ||
+  (lsGet('cortana-ops', 'jarvis-ops') === null && window.innerWidth > 720));
 
 /* ===== Floating vault files — Obsidian holograms in the background ===== */
 async function buildHoloField() {
@@ -2393,11 +2415,23 @@ window.addEventListener('DOMContentLoaded', () => {
   // Non-production visual QA hook: ?cortana-state=speaking&cortana-tone=emphatic
   const qa = new URLSearchParams(location.search);
   const qaState = qa.get('cortana-state');
+  // Wake-up greeting: first sound Chief hears on load, not a routing banner.
+  // Browsers may block autoplay until there's a user gesture on this page —
+  // if so this silently no-ops and the first spoken line is just his next
+  // message's reply instead, no error shown.
+  if (!qaState) {
+    setState('speaking');
+    setSpeakingTone('I\'m here, Chief.');
+    startLipSync('I\'m here, Chief.');
+    addMsg('I\'m here, Chief.', 'cortana');
+    speak('I\'m here, Chief.').catch(() => {});
+    setTimeout(() => { if (currentState === 'speaking') setState(restState()); }, 2500);
+  }
   if (qaState && states[qaState]) {
     let qaTries = 0;
     const applyQaPose = () => {
-      if ((!window.jarvisSetView || !window.jarvisGalaxyReady) && qaTries++ < 40) { setTimeout(applyQaPose, 150); return; }
-      if (window.jarvisSetView) window.jarvisSetView('core', false);
+      if ((!window.cortanaSetView || !window.cortanaGalaxyReady) && qaTries++ < 40) { setTimeout(applyQaPose, 150); return; }
+      if (window.cortanaSetView) window.cortanaSetView('core', false);
       setState(qaState);
       const avatar = document.getElementById('cortanaAvatar');
       const tone = qa.get('cortana-tone');

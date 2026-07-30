@@ -466,7 +466,7 @@
 
   function setView(name, persist = true) {
     const useGalaxy = name === 'galaxy' && galaxy;
-    window.jarvisGalaxyActive = !!useGalaxy;
+    window.cortanaGalaxyActive = !!useGalaxy;
     document.body.classList.toggle('galaxy-view', !!useGalaxy);
     document.querySelectorAll('.viewBtn').forEach((b) => b.classList.toggle('active', b.dataset.view === (useGalaxy ? 'galaxy' : 'core')));
     if (galaxy) galaxy.visible = !!useGalaxy;
@@ -485,12 +485,12 @@
       targetCamera.set(0, 0, 3);
       targetLook.set(0, 0, 0);
     }
-    if (persist) localStorage.setItem('jarvis-view', useGalaxy ? 'galaxy' : 'core');
+    if (persist) localStorage.setItem('cortana-view', useGalaxy ? 'galaxy' : 'core');
   }
-  window.jarvisSetView = setView;
+  window.cortanaSetView = setView;
 
   function pickNode(e) {
-    if (!window.jarvisGalaxyActive || !points || overUI(e)) return null;
+    if (!window.cortanaGalaxyActive || !points || overUI(e)) return null;
     pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
     pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
@@ -542,7 +542,7 @@
     lastInteraction = Date.now();
   }
 
-  window.jarvisTraceSources = (sources) => {
+  window.cortanaTraceSources = (sources) => {
     if (!sources || !sources.length || !graphData) return;
     const nodes = sources.map((src) => graphData.nodes.find((n) => n.path === src.path)).filter(Boolean);
     if (!nodes.length) return;
@@ -555,7 +555,7 @@
     }
   };
 
-  window.jarvisRemember = async (text) => {
+  window.cortanaRemember = async (text) => {
     addMsg(text, 'thomas');
     input.value = ''; input.style.height = 'auto';
     sendBtn.disabled = true;
@@ -569,7 +569,7 @@
       const reply = window.CORTANA_STATIC_MODE
         ? `Saved in this browser-only field log, Chief. Connect the private core to make it permanent vault memory.`
         : `Filed in the vault, Chief. Another star joins the mission map; the paperwork remains mercifully terrestrial.`;
-      addMsg(reply, 'jarvis', { label: 'Local memory', effort: 'no model', reason: 'vault capture' });
+      addMsg(reply, 'cortana', { label: 'Local memory', effort: 'no model', reason: 'vault capture' });
       setState('speaking');
       speak(reply);
     } catch (err) {
@@ -587,11 +587,11 @@
     const node = data.nodes.find((n) => n.path === flyPath);
     if (node) setTimeout(() => flyToNode(node, true), 180);
   }
-  window.jarvisRefreshGalaxy = () => refreshGalaxy();
+  window.cortanaRefreshGalaxy = () => refreshGalaxy();
 
   function bindControls() {
     window.addEventListener('mousemove', (e) => {
-      if (!window.jarvisGalaxyActive) return;
+      if (!window.cortanaGalaxyActive) return;
       if (dragging) {
         galaxy.rotation.y = rotationStart.y + (e.clientX - dragStart.x) * .004;
         galaxy.rotation.x = Math.max(-.7, Math.min(.7, rotationStart.x + (e.clientY - dragStart.y) * .003));
@@ -607,7 +607,7 @@
       } else if (!overUI(e)) { nodeTip.style.display = 'none'; document.body.style.cursor = ''; }
     });
     window.addEventListener('mousedown', (e) => {
-      if (!window.jarvisGalaxyActive || overUI(e)) return;
+      if (!window.cortanaGalaxyActive || overUI(e)) return;
       dragging = true; dragStart = { x: e.clientX, y: e.clientY }; rotationStart = { x: galaxy.rotation.x, y: galaxy.rotation.y };
     });
     window.addEventListener('mouseup', (e) => {
@@ -617,20 +617,20 @@
       if (moved < 5) { const node = pickNode(e); if (node) flyToNode(node); }
     });
     window.addEventListener('wheel', (e) => {
-      if (!window.jarvisGalaxyActive || overUI(e)) return;
+      if (!window.cortanaGalaxyActive || overUI(e)) return;
       targetCamera.z = Math.max(3.2, Math.min(17, targetCamera.z + e.deltaY * .008));
       lastInteraction = Date.now();
     }, { passive: true });
     window.addEventListener('dblclick', (e) => {
-      if (!window.jarvisGalaxyActive || overUI(e)) return;
+      if (!window.cortanaGalaxyActive || overUI(e)) return;
       targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
       lastInteraction = Date.now();
       document.getElementById('sourceCard').classList.remove('open');
     });
   }
 
-  window.jarvisGalaxyTick = () => {
-    if (!galaxy || !window.jarvisGalaxyActive) return;
+  window.cortanaGalaxyTick = () => {
+    if (!galaxy || !window.cortanaGalaxyActive) return;
     if (haloWorld && haloWorld.userData.spinner) haloWorld.userData.spinner.rotation.y += .0006;
     const idleFor = Date.now() - lastInteraction;
     if (!dragging && idleFor > 3500) galaxy.rotation.y += .00034;
@@ -647,7 +647,7 @@
   async function init() {
     buildChrome();
     bindControls();
-    window.jarvisGalaxyActive = true;
+    window.cortanaGalaxyActive = true;
     document.body.classList.add('galaxy-view');
     if (orbCore) orbCore.visible = false;
     if (orbAtmo) orbAtmo.visible = false;
@@ -660,16 +660,16 @@
       // Always start in GALAXY. CORE remains fully available from the toggle,
       // its preference plumbing stays intact, and it remains the load fallback.
       setView('galaxy', false);
-      window.jarvisGalaxyReady = true;
+      window.cortanaGalaxyReady = true;
       if (!booted) {
         booted = true;
-        addMsg(`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, Chief. ${data.noteCount} notes indexed. Cortana is online and ready for the mission.`, 'jarvis');
+        addMsg(`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, Chief. ${data.noteCount} notes indexed. Cortana is online and ready for the mission.`, 'cortana');
       }
     } catch (err) {
       setView('core', false);
-      window.jarvisGalaxyReady = true;
+      window.cortanaGalaxyReady = true;
       document.getElementById('galaxyMeta').textContent = 'Galaxy offline · core systems remain available';
-      addMsg('Core systems online, Chief. The galaxy is being temperamental; how very celestial of it.', 'jarvis');
+      addMsg('Core systems online, Chief. The galaxy is being temperamental; how very celestial of it.', 'cortana');
     }
   }
 

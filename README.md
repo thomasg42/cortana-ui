@@ -7,7 +7,7 @@ galaxy as its automatic startup view with a full-body Cortana hologram in Core v
 ## Start
 
 ```bash
-cd /Users/tg2.0/Documents/FGA-Brain/jarvis-voice-ui
+cd /Users/tg2.0/Documents/FGA-Brain/cortana-ui
 node server.js
 ```
 
@@ -26,6 +26,10 @@ Open **http://localhost:3000** in Chrome or Edge. No npm install is required.
   and feet are independently controllable; data paths flow from feet to head;
   listening, thinking, normal speech, emphatic delivery, and caring delivery use
   distinct human poses. Her projector remains Core-only.
+- **Mission-deck visual**: Core uses a project-local cinematic ringworld command-deck
+  background, a compact left tactical stack, and a dedicated right command column for
+  mission doctrine, status, conversation, model selection, and voice controls. The
+  layout keeps Cortana centered on the hard-light projector and preserves Galaxy.
 - **Master Chief guard panel**: Galaxy includes the generated transparent armor asset
   and the mission line “Protect the mission. Protect the people. We finish the fight.”
 - **Source flight**: vault-backed answers light their source nodes and fly to the top
@@ -42,7 +46,7 @@ Open **http://localhost:3000** in Chrome or Edge. No npm install is required.
 - **Existing operating controls preserved**: Vault, SYS, Priority Ops, daytime rail,
   model pills, effort pills, spend guardrails, live tools, and conversation logging.
 - **Canonical identity**: chat loads the Cortana identity from the compatibility path
-  `FGA-AIOS/model-routing/jarvis-core.md`, then the live routine and conversation context. The same core also syncs to the existing
+  `FGA-AIOS/model-routing/cortana-core.md`, then the live routine and conversation context. The same core also syncs to the existing
   ElevenLabs agent on server startup and every five minutes.
 - **Automatic mission routing**: Auto selects provider, exact model, and effort.
   Claude scales Haiku/Sonnet/Fable, ChatGPT scales GPT-5.6 Luna/Terra/Sol, Grok
@@ -78,6 +82,8 @@ never enters the deployed file.
 
 - `index.html` — Cortana motion/viseme controller, chat, Vault/SYS/Ops, voice, and
   model/effort UI
+- `core-visual.css` — isolated Core-only mission-deck layout and responsive styling
+- `assets/cortana-command-deck-v1.webp` — optimized 1672×941 cinematic Core backdrop
 - `assets/cortana-h4-rig.svg` — active 420×720 articulated Halo 4-inspired Core rig
 - `assets/cortana-hologram.png` — legacy unreferenced PNG archive
 - `assets/master-chief-panel-v2.png` — transparent 1024×1536 Galaxy guard panel

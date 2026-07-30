@@ -1,0 +1,592 @@
+/* CORTANA Core visual pass — presentation only.
+   Existing voice, routing, GLB, Galaxy, and tool behavior remain untouched. */
+
+:root {
+  --command-width: min(34vw, 430px);
+  --tactical-width: min(24vw, 310px);
+  --command-edge: 18px;
+  --armor: rgba(3, 10, 9, .82);
+  --armor-deep: rgba(2, 7, 7, .94);
+  --command-line: rgba(120, 231, 208, .24);
+}
+
+#missionBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg,
+      rgba(1, 7, 7, .22) 0%,
+      rgba(1, 7, 7, .05) 30%,
+      rgba(1, 7, 7, .08) 55%,
+      rgba(1, 7, 9, .72) 74%,
+      rgba(1, 6, 8, .94) 100%),
+    linear-gradient(180deg,
+      rgba(1, 6, 7, .12) 0%,
+      transparent 48%,
+      rgba(1, 6, 7, .44) 100%),
+    url("assets/cortana-command-deck-v1.webp") center center / cover no-repeat;
+  opacity: .96;
+  visibility: visible;
+  transition: opacity .45s ease, visibility .45s ease;
+}
+
+#missionBackdrop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 69%, rgba(79, 255, 217, .11), transparent 24%),
+    linear-gradient(90deg, rgba(4, 27, 25, .22), transparent 24% 66%, rgba(3, 11, 15, .44));
+  mix-blend-mode: screen;
+}
+
+#missionBackdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(2, 8, 8, .1), transparent 27%, transparent 66%, rgba(2, 7, 9, .86)),
+    radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0, 4, 5, .58) 100%);
+}
+
+body.galaxy-view #missionBackdrop,
+body.galaxy-view #missionDoctrine {
+  opacity: 0;
+  visibility: hidden;
+}
+
+body:not(.galaxy-view) {
+  background: #020707;
+}
+
+body:not(.galaxy-view) #stars {
+  opacity: .28;
+  mix-blend-mode: screen;
+}
+
+body:not(.galaxy-view) #haloRing {
+  opacity: 0;
+  visibility: hidden;
+}
+
+body:not(.galaxy-view) #dayRail,
+body:not(.galaxy-view) #galaxyMeta {
+  display: none;
+}
+
+body:not(.galaxy-view) #hudGrid {
+  opacity: .18;
+  background-size: 64px 64px;
+  mask-image: linear-gradient(90deg, black, transparent 27% 66%, black);
+  -webkit-mask-image: linear-gradient(90deg, black, transparent 27% 66%, black);
+}
+
+body:not(.galaxy-view) #scanlines {
+  opacity: .22;
+}
+
+body:not(.galaxy-view) #scanlines::after {
+  opacity: .42;
+}
+
+/* The generated environment already owns the projector and light cone. */
+body:not(.galaxy-view) #beam {
+  width: min(34vmin, 330px);
+  height: 34vh;
+  bottom: 111px;
+  opacity: .36;
+  mix-blend-mode: screen;
+}
+
+body:not(.galaxy-view) #projBase {
+  bottom: 104px;
+  width: 168px;
+  height: 18px;
+  opacity: .64;
+}
+
+/* Cortana remains centered on the physical projector, with cleaner breathing room. */
+body:not(.galaxy-view) #cortanaAvatar {
+  left: 50%;
+  top: 78px;
+  bottom: 198px;
+  width: min(38vw, 480px);
+  opacity: 1;
+}
+
+body:not(.galaxy-view) #cortanaAvatar::before {
+  width: min(34vw, 410px);
+  opacity: .42;
+}
+
+body:not(.galaxy-view) #cortanaAvatar::after {
+  width: min(19vw, 230px);
+  opacity: .62;
+}
+
+/* All command copy lives in one calm right-side column. */
+body:not(.galaxy-view) header {
+  left: auto;
+  right: var(--command-edge);
+  width: var(--command-width);
+  padding: 15px 0 0;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+
+body:not(.galaxy-view) header .brand {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+body:not(.galaxy-view) header h1 {
+  font-size: 15px;
+  letter-spacing: .62em;
+  color: #b8fff0;
+  text-shadow: 0 0 20px rgba(79, 255, 217, .26);
+}
+
+body:not(.galaxy-view) header .sub {
+  color: rgba(151, 198, 188, .54);
+  letter-spacing: .24em;
+}
+
+body:not(.galaxy-view) #clock {
+  color: rgba(193, 231, 223, .52);
+  font: 9px/1.2 "SF Mono", Menlo, monospace;
+}
+
+#missionDoctrine {
+  position: fixed;
+  z-index: 18;
+  top: 112px;
+  right: var(--command-edge);
+  width: var(--command-width);
+  min-height: 150px;
+  padding: 17px 20px 18px 23px;
+  pointer-events: none;
+  border-left: 2px solid rgba(255, 196, 46, .72);
+  border-top: 1px solid rgba(120, 231, 208, .17);
+  background:
+    linear-gradient(90deg, rgba(5, 21, 20, .78), rgba(2, 10, 12, .3) 74%, transparent),
+    linear-gradient(180deg, rgba(96, 255, 218, .035), transparent);
+  box-shadow: -24px 0 46px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(8px);
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .35s ease, visibility .35s ease;
+}
+
+.doctrineKicker {
+  display: block;
+  margin-bottom: 12px;
+  color: rgba(138, 225, 206, .58);
+  font: 8px/1.2 "SF Mono", Menlo, monospace;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+}
+
+#missionDoctrine strong {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: rgba(224, 255, 248, .84);
+  font-size: clamp(12px, 1.1vw, 16px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(0, 0, 0, .94);
+}
+
+#missionDoctrine strong .finish {
+  color: #ffd66d;
+  text-shadow: 0 0 16px rgba(255, 196, 46, .25);
+}
+
+.doctrineFooter {
+  display: block;
+  margin-top: 13px;
+  color: rgba(167, 215, 205, .44);
+  font: 8px/1.2 "SF Mono", Menlo, monospace;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+body:not(.galaxy-view) #orbStatus {
+  top: 290px;
+  right: var(--command-edge);
+  bottom: auto;
+  left: auto;
+  width: var(--command-width);
+  transform: none;
+  padding: 8px 0 0 23px;
+  border-top: 1px solid rgba(120, 231, 208, .12);
+  text-align: left;
+  font: 8px/1.2 "SF Mono", Menlo, monospace;
+  letter-spacing: .34em;
+}
+
+body:not(.galaxy-view) #chatWrap {
+  left: auto;
+  right: var(--command-edge);
+  bottom: 16px;
+  width: var(--command-width);
+  max-height: calc(100vh - 340px);
+  transform: none;
+  gap: 8px;
+  padding: 16px 0 0 18px;
+  border-left: 1px solid rgba(120, 231, 208, .22);
+}
+
+body:not(.galaxy-view) #chatWrap::before {
+  content: "ACTIVE COMMAND CHANNEL";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  color: rgba(126, 209, 191, .46);
+  font: 7px/1 "SF Mono", Menlo, monospace;
+  letter-spacing: .28em;
+}
+
+body:not(.galaxy-view) #log {
+  max-height: min(25vh, 210px);
+  gap: 7px;
+  padding: 3px 0;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+body:not(.galaxy-view) .msg {
+  max-width: 100%;
+  border-radius: 2px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+body:not(.galaxy-view) .msg.jarvis {
+  align-self: stretch;
+  background: linear-gradient(90deg, rgba(7, 24, 23, .86), rgba(3, 12, 14, .56));
+  border-color: rgba(120, 231, 208, .2);
+}
+
+body:not(.galaxy-view) .msg.thomas {
+  background: rgba(58, 161, 137, .12);
+}
+
+body:not(.galaxy-view) #switchRow {
+  justify-content: flex-end;
+}
+
+body:not(.galaxy-view) .mpill,
+body:not(.galaxy-view) .epill {
+  padding: 4px 7px;
+  background: rgba(3, 14, 15, .78);
+  border-radius: 2px;
+  font-size: 8px;
+}
+
+body:not(.galaxy-view) #bar {
+  border-radius: 2px;
+  border-color: rgba(120, 231, 208, .26);
+  background:
+    linear-gradient(90deg, rgba(5, 24, 22, .9), rgba(2, 11, 14, .86));
+  box-shadow: 0 12px 50px rgba(0, 0, 0, .28);
+}
+
+body:not(.galaxy-view) #input {
+  font-size: 13px;
+}
+
+body:not(.galaxy-view) .barbtn {
+  border-radius: 2px;
+  padding: 0 10px;
+}
+
+/* Utility controls and tactical bubbles form one left-side stack. */
+body:not(.galaxy-view) #vaultToggle,
+body:not(.galaxy-view) #sysToggle,
+body:not(.galaxy-view) #coreConnect,
+body:not(.galaxy-view) #opsToggle {
+  top: 63px;
+  right: auto;
+  min-width: 76px;
+  padding: 8px 10px;
+  border-radius: 2px;
+  background: rgba(3, 15, 14, .82);
+  border-color: rgba(120, 231, 208, .22);
+  font-size: 8px;
+  letter-spacing: .2em;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+body:not(.galaxy-view) #vaultToggle { left: 18px; }
+body:not(.galaxy-view) #sysToggle { left: 101px; }
+body:not(.galaxy-view) #coreConnect { left: 184px; }
+body:not(.galaxy-view) #opsToggle { left: 267px; }
+
+body:not(.galaxy-view) #opsDock {
+  top: 111px;
+  right: auto;
+  left: 18px;
+  bottom: auto;
+  width: var(--tactical-width);
+  max-height: 280px;
+  gap: 4px;
+  overflow: hidden;
+}
+
+body:not(.galaxy-view) #opsDock .ohead {
+  padding: 0 0 4px 9px;
+  border-left: 1px solid rgba(255, 196, 46, .52);
+  color: rgba(152, 211, 199, .48);
+  font-size: 7px;
+}
+
+body:not(.galaxy-view) .opsBtn {
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(5, 22, 20, .83), rgba(2, 12, 14, .52));
+  border-color: rgba(120, 231, 208, .2);
+  font-size: 9px;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+body:not(.galaxy-view) .opsBtn .num {
+  color: rgba(255, 214, 109, .74);
+}
+
+body:not(.galaxy-view) #holoField {
+  inset: 405px auto 148px 18px;
+  width: var(--tactical-width);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  pointer-events: none;
+}
+
+body:not(.galaxy-view) .holoCard {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  width: 100% !important;
+  min-height: 0;
+  flex: 1 1 0;
+  padding: 9px 11px 8px 14px;
+  border-radius: 2px;
+  border-color: rgba(98, 218, 193, .17);
+  background: linear-gradient(90deg, rgba(4, 20, 19, .74), rgba(3, 12, 14, .4));
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  filter: none !important;
+  transform: none;
+  animation: tacticalDrift var(--dur, 14s) ease-in-out infinite alternate, holoflicker 9s infinite;
+  pointer-events: auto;
+}
+
+body:not(.galaxy-view) .holoCard:nth-child(n + 4) {
+  display: none;
+}
+
+body:not(.galaxy-view) .holoCard .hname {
+  margin-bottom: 4px;
+  color: rgba(128, 239, 215, .74);
+  font-size: 8px;
+}
+
+body:not(.galaxy-view) .holoCard .hbody {
+  max-height: 2.8em;
+  color: rgba(173, 225, 213, .48);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+@keyframes tacticalDrift {
+  from { transform: translateX(0); }
+  to { transform: translateX(4px); }
+}
+
+body:not(.galaxy-view) #vault,
+body:not(.galaxy-view) #sysPanel {
+  top: 106px;
+  bottom: 20px;
+  width: min(360px, calc(100vw - 36px));
+  background: linear-gradient(145deg, rgba(3, 15, 14, .97), rgba(2, 9, 11, .94));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .48);
+}
+
+body:not(.galaxy-view) #filePreview {
+  top: 106px;
+  bottom: 20px;
+  background: linear-gradient(145deg, rgba(3, 15, 14, .98), rgba(2, 9, 11, .96));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .48);
+}
+
+@media (max-width: 1120px) {
+  :root {
+    --command-width: min(38vw, 410px);
+    --tactical-width: min(25vw, 270px);
+  }
+
+  body:not(.galaxy-view) #opsToggle { left: 260px; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 49%; width: min(34vw, 410px); }
+  body:not(.galaxy-view) #holoField { bottom: 158px; }
+  body:not(.galaxy-view) .holoCard:nth-child(n + 3) { display: none; }
+}
+
+@media (max-width: 860px) {
+  :root {
+    --command-width: min(43vw, 370px);
+    --tactical-width: min(27vw, 230px);
+    --command-edge: 12px;
+  }
+
+  body:not(.galaxy-view) #opsDock {
+    left: 12px;
+    width: var(--tactical-width);
+  }
+
+  body:not(.galaxy-view) #holoField {
+    left: 12px;
+    width: var(--tactical-width);
+  }
+
+  body:not(.galaxy-view) #opsToggle { left: auto; right: 12px; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 45%; width: min(34vw, 340px); }
+  #missionDoctrine { min-height: 138px; }
+  #missionDoctrine strong { font-size: 11px; }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --command-width: calc(100vw - 20px);
+    --command-edge: 10px;
+  }
+
+  #missionBackdrop {
+    background:
+      linear-gradient(180deg, rgba(1, 7, 8, .34), transparent 36%, rgba(1, 7, 9, .64)),
+      linear-gradient(90deg, rgba(1, 7, 7, .18), rgba(1, 7, 9, .62)),
+      url("assets/cortana-command-deck-v1.webp") 46% center / cover no-repeat;
+  }
+
+  body:not(.galaxy-view) header {
+    right: 10px;
+    width: calc(100vw - 20px);
+    padding-top: 12px;
+  }
+
+  body:not(.galaxy-view) header .sub,
+  body:not(.galaxy-view) #clock {
+    display: none;
+  }
+
+  body:not(.galaxy-view) header h1 {
+    font-size: 13px;
+    letter-spacing: .42em;
+  }
+
+  #missionDoctrine {
+    top: 98px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    min-height: 0;
+    padding: 8px 10px 9px 12px;
+    border-left-width: 1px;
+  }
+
+  .doctrineKicker,
+  .doctrineFooter {
+    display: none;
+  }
+
+  #missionDoctrine strong {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px 11px;
+    font-size: 7px;
+    letter-spacing: .11em;
+  }
+
+  body:not(.galaxy-view) #cortanaAvatar {
+    left: 50%;
+    top: 138px;
+    bottom: 206px;
+    width: min(68vw, 360px);
+  }
+
+  body:not(.galaxy-view) #cortanaAvatar::before { width: min(64vw, 330px); }
+  body:not(.galaxy-view) #beam { bottom: 123px; }
+  body:not(.galaxy-view) #projBase { bottom: 117px; }
+
+  body:not(.galaxy-view) #orbStatus {
+    top: 126px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    padding: 5px 0 0;
+    border-top: 0;
+    text-align: center;
+    font-size: 6px;
+  }
+
+  body:not(.galaxy-view) #chatWrap {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    max-height: 37vh;
+    padding: 12px 0 0;
+    border-left: 0;
+  }
+
+  body:not(.galaxy-view) #chatWrap::before {
+    left: 1px;
+    font-size: 6px;
+  }
+
+  body:not(.galaxy-view) #log {
+    max-height: 16vh;
+  }
+
+  body:not(.galaxy-view) #switchRow {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  body:not(.galaxy-view) #switchRow::-webkit-scrollbar { display: none; }
+
+  body:not(.galaxy-view) #vaultToggle,
+  body:not(.galaxy-view) #sysToggle,
+  body:not(.galaxy-view) #coreConnect,
+  body:not(.galaxy-view) #opsToggle {
+    top: 56px;
+    min-width: 66px;
+    padding: 7px 7px;
+    font-size: 7px;
+  }
+
+  body:not(.galaxy-view) #vaultToggle { left: 10px; }
+  body:not(.galaxy-view) #sysToggle { left: 82px; }
+  body:not(.galaxy-view) #coreConnect { left: 154px; }
+  body:not(.galaxy-view) #opsToggle { left: auto; right: 10px; }
+  body:not(.galaxy-view) #opsDock { left: 10px; width: min(210px, 58vw); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #missionBackdrop,
+  #missionDoctrine {
+    transition: none;
+  }
+
+  body:not(.galaxy-view) .holoCard {
+    animation: none;
+  }
+}

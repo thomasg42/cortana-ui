@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>C.O.R.T.A.N.A — FGA</title>
-<link rel="stylesheet" href="galaxy.css?v=20260729-holotank" />
+<link rel="stylesheet" href="galaxy.css?v=20260730-no-core-nodes" />
 <style>
   :root {
     --arc: #35ff9d;
@@ -679,7 +679,7 @@
     #orbStatus { bottom: 134px; }
   }
 </style>
-<link rel="stylesheet" href="core-visual.css?v=20260729-pos-cyan" />
+<link rel="stylesheet" href="core-visual.css?v=20260730-no-core-nodes" />
 </head>
 <body>
 <div id="missionBackdrop" aria-hidden="true"></div>
@@ -1284,105 +1284,24 @@ function initOrb() {
 }
 
 /* ============================================================
-   VAULT GRAPH — the vault rendered as a miniature Obsidian-style
-   constellation INSIDE the orb: gold hubs = folders, blue points
-   = files, threads = structure. Hover to read a node, click a
-   file to open it, click a folder to open the vault drawer.
+   VAULT GRAPH — retired from CORE view (2026-07-30).
+   The miniature Obsidian constellation behind Cortana was removed
+   so CORE stays hologram + command deck only. Full vault map still
+   lives under Galaxy. initVaultGraph kept as a no-op so any stale
+   callers / galaxy.js visibility guards stay harmless.
    ============================================================ */
 async function initVaultGraph() {
-  let tree;
-  try {
-    const res = await fetch('/api/vault/tree');
-    tree = (await res.json()).tree || [];
-  } catch (_) { return; } // vault offline — orb just stays as-is
-  const MAX_NODES = 220, MAX_FILES_PER_DIR = 8;
-  const filePos = [], dirPos = [], linePos = [];
-  fileNodes = []; dirNodes = [];
-  let count = 0;
-
-  const pushLine = (a, b) => { linePos.push(a.x, a.y, a.z, b.x, b.y, b.z); };
-  const randDir = () => new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-
-  // Root hub at the orb's core
-  const root = new THREE.Vector3(0, 0, 0);
-  dirPos.push(0, 0, 0);
-  dirNodes.push({ path: '', name: 'FGA-Brain', type: 'dir' });
-
-  function place(nodes, center, radius, depth) {
-    const dirs = nodes.filter((n) => n.type === 'dir');
-    const files = nodes.filter((n) => n.type === 'file').slice(0, MAX_FILES_PER_DIR);
-    const all = dirs.concat(files);
-    all.forEach((node, i) => {
-      if (count >= MAX_NODES) return;
-      count++;
-      // Even ring distribution at top level (golden angle), looser when nested
-      let dir;
-      if (depth === 0) {
-        const phi = i * 2.39996; // golden angle
-        const y = ((i / Math.max(1, all.length - 1)) - 0.5) * 1.6;
-        dir = new THREE.Vector3(Math.cos(phi), y, Math.sin(phi)).normalize();
-      } else {
-        dir = randDir();
-      }
-      const pos = center.clone().add(dir.multiplyScalar(radius * (0.75 + Math.random() * 0.5)));
-      pos.clampLength(0, 0.56); // stay inside the innermost orb shell
-      pushLine(center, pos);
-      if (node.type === 'dir') {
-        dirPos.push(pos.x, pos.y, pos.z);
-        dirNodes.push({ path: node.path, name: node.name, type: 'dir' });
-        if (depth < 2 && node.children && node.children.length) {
-          place(node.children, pos, radius * 0.45, depth + 1);
-        }
-      } else {
-        filePos.push(pos.x, pos.y, pos.z);
-        fileNodes.push({ path: node.path, name: node.name, type: 'file' });
-      }
-    });
+  if (vaultGraph && scene) {
+    scene.remove(vaultGraph);
+    vaultGraph = null;
+    filePoints = null;
+    dirPoints = null;
   }
-  place(tree, root, 0.34, 0);
-
-  vaultGraph = new THREE.Group();
-  const mkGeo = (arr) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-    return g;
-  };
-  // Circular orb sprite — solid bright core with a soft glow falloff, so
-  // nodes read as round Obsidian-style orbs instead of square GL points
-  const orbSprite = (() => {
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0.0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.28, 'rgba(255,255,255,1)');
-    g.addColorStop(0.42, 'rgba(255,255,255,0.55)');
-    g.addColorStop(0.7, 'rgba(255,255,255,0.12)');
-    g.addColorStop(1.0, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(c);
-    tex.needsUpdate = true;
-    return tex;
-  })();
-  // depthTest off: the constellation shines through the solid core like a
-  // hologram projected inside it
-  const lines = new THREE.LineSegments(mkGeo(linePos), new THREE.LineBasicMaterial({
-    color: 0x46ffa4, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending,
-    depthWrite: false, depthTest: false,
-  }));
-  filePoints = new THREE.Points(mkGeo(filePos), new THREE.PointsMaterial({
-    color: 0xffe9a8, size: 0.055, map: orbSprite, sizeAttenuation: true, transparent: true, opacity: 0.95,
-    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
-  }));
-  dirPoints = new THREE.Points(mkGeo(dirPos), new THREE.PointsMaterial({
-    color: 0xffc42e, size: 0.1, map: orbSprite, sizeAttenuation: true, transparent: true, opacity: 1.0,
-    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
-  }));
-  vaultGraph.add(lines, filePoints, dirPoints);
-  vaultGraph.position.y = ORB_Y;
-  vaultGraph.renderOrder = 10;
-  scene.add(vaultGraph);
+  fileNodes = [];
+  dirNodes = [];
+  hoveredNode = null;
+  const tip = document.getElementById('nodeTip');
+  if (tip && !window.cortanaGalaxyActive) tip.style.display = 'none';
 }
 
 /* Reach into the orb: hover a data point to identify it, click to open */
@@ -2965,6 +2884,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>
-<script src="galaxy.js?v=20260729-holotank"></script>
+<script src="galaxy.js?v=20260730-no-core-nodes"></script>
 </body>
 </html>

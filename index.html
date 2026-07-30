@@ -70,6 +70,20 @@
     cursor: grab; touch-action: none;
   }
   #cortanaAvatar .holoFigure:active { cursor: grabbing; }
+  /* The GLB owns its complete 3D transform. CSS patrol/float animations on the
+     canvas caused periodic visual resets on top of the real 360° rotation. */
+  #cortanaAvatar.glb-active .cortanaBody,
+  #cortanaAvatar.glb-active.gesture .cortanaBody {
+    animation: none !important;
+    transform: none;
+  }
+  #cortanaAvatar.glb-active .rigMount canvas.holoFigure,
+  #cortanaAvatar.glb-active.state-listening .rigMount canvas.holoFigure,
+  #cortanaAvatar.glb-active.state-thinking .rigMount canvas.holoFigure,
+  #cortanaAvatar.glb-active.state-speaking .rigMount canvas.holoFigure {
+    animation: none !important;
+    transform: none;
+  }
   #cortanaAvatar.state-listening {
     --avatar-glow: rgba(255,196,46,.62); --avatar-core: rgba(255,226,122,.25);
   }
@@ -1411,11 +1425,13 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// Live QA: model faces away at yaw 0 — PI turns her toward Chief.
-const CORTANA_GLB_FACE_FLIP = true;
+// Verified against the production GLB: its authored yaw 0 already faces Chief.
+// The former PI flip made the interaction target show her back.
+const CORTANA_GLB_FACE_FLIP = false;
 let cortanaGLB = null; // { scene, camera, renderer, model, mount, resize, controls, body }
 
 function mountCortanaPNG(avatar, mount) {
+  avatar.classList.remove('glb-active');
   const img = document.createElement('img');
   img.className = 'holoFigure';
   img.alt = '';
@@ -1565,6 +1581,101 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   return { points, geometry, material, update, count };
 }
 
+/* The current production GLB is one solid mesh with no skeleton, animation
+   clips, or morph targets. A small 3D speech plane gives that mesh a real
+   forward-facing mouth contract while the existing reply-driven body language
+   handles posture and gesture intent. It is visible only during speech. */
+function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
+  const faceCanvas = document.createElement('canvas');
+  faceCanvas.width = 256;
+  faceCanvas.height = 128;
+  const ctx = faceCanvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(faceCanvas);
+  texture.needsUpdate = true;
+  if ('encoding' in texture && THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
+
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    opacity: 0.96,
+    side: THREE.DoubleSide,
+  });
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(modelWidth * 0.115, modelHeight * 0.043),
+    material
+  );
+  plane.position.set(0, modelHeight * 0.842, modelDepth * 0.535);
+  plane.renderOrder = 40;
+  plane.visible = false;
+  bodyRoot.add(plane);
+
+  let lastViseme = '';
+  let lastIntent = '';
+
+  function draw(viseme, intent) {
+    ctx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+    const strong = intent === 'emphatic';
+    const caring = intent === 'caring';
+    const line = strong ? '#dffff3' : caring ? '#c9fff0' : '#c6f6ff';
+    const glow = strong ? '#63ffc6' : caring ? '#88e8ff' : '#61d8ff';
+    const dark = 'rgba(3, 12, 25, .86)';
+    const cx = 128;
+    const cy = 64;
+
+    ctx.save();
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = strong ? 18 : 12;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = line;
+    ctx.fillStyle = dark;
+    ctx.lineWidth = strong ? 8 : 7;
+    ctx.beginPath();
+    if (viseme === 'm' || viseme === 'rest') {
+      ctx.moveTo(91, 64);
+      ctx.quadraticCurveTo(128, viseme === 'm' ? 68 : 66, 165, 64);
+    } else if (viseme === 'a') {
+      ctx.ellipse(cx, cy, 30, 25, 0, 0, Math.PI * 2);
+    } else if (viseme === 'e') {
+      ctx.ellipse(cx, cy, 39, 14, 0, 0, Math.PI * 2);
+    } else if (viseme === 'o') {
+      ctx.ellipse(cx, cy, 20, 24, 0, 0, Math.PI * 2);
+    } else if (viseme === 'f') {
+      ctx.moveTo(95, 59);
+      ctx.quadraticCurveTo(128, 52, 161, 59);
+      ctx.moveTo(101, 68);
+      ctx.quadraticCurveTo(128, 78, 155, 68);
+    } else {
+      ctx.moveTo(92, 64);
+      ctx.quadraticCurveTo(128, 67, 164, 64);
+    }
+    if (viseme !== 'm' && viseme !== 'rest' && viseme !== 'f') ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    texture.needsUpdate = true;
+  }
+
+  function update(state, viseme, intent, talk) {
+    plane.visible = state === 'speaking';
+    if (!plane.visible) return;
+    const nextViseme = viseme || 'rest';
+    const nextIntent = intent || 'neutral';
+    if (nextViseme !== lastViseme || nextIntent !== lastIntent) {
+      draw(nextViseme, nextIntent);
+      lastViseme = nextViseme;
+      lastIntent = nextIntent;
+    }
+    const pulse = 1 + Math.max(0, talk) * 0.035;
+    plane.scale.set(pulse, 1 + Math.max(0, talk) * 0.06, 1);
+  }
+
+  draw('rest', 'neutral');
+  return { plane, texture, material, update };
+}
+
 async function loadCortanaRig() {
   const avatar = document.getElementById('cortanaAvatar');
   const mount = avatar && avatar.querySelector('.rigMount');
@@ -1619,6 +1730,7 @@ async function loadCortanaRig() {
     const box0 = new THREE.Box3().setFromObject(model);
     const modelHeight = Math.max(0.001, box0.max.y - box0.min.y);
     const modelWidth = Math.max(0.001, box0.max.x - box0.min.x);
+    const modelDepth = Math.max(0.001, box0.max.z - box0.min.z);
     const swayUniform = { value: 0 };
     const talkUniform = { value: 0 };
     const flickerUniform = { value: 1 };
@@ -1683,6 +1795,8 @@ async function loadCortanaRig() {
     bodyRoot.add(model);
     scene.add(bodyRoot);
     const bodyPixels = buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth);
+    const speechFace = buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth);
+    avatar.classList.add('glb-active');
 
     const orbitTarget = new THREE.Vector3(0, modelHeight * 0.49, 0);
     // Fill more of her allotted screen zone while keeping hands and feet visible.
@@ -1704,7 +1818,17 @@ async function loadCortanaRig() {
       lastX: 0,
       grabSide: 0,
       resumeAt: performance.now(),
+      focusYaw: 0,
+      wasInteracting: false,
+      qaAt: 0,
     };
+    const TAU = Math.PI * 2;
+    function nextForwardFront(yaw) {
+      const turns = yaw / TAU;
+      const nearest = Math.round(turns);
+      if (Math.abs(turns - nearest) < 0.018) return nearest * TAU;
+      return Math.ceil(turns) * TAU;
+    }
 
     const raycaster = new THREE.Raycaster();
     const pointerNDC = new THREE.Vector2();
@@ -1741,6 +1865,7 @@ async function loadCortanaRig() {
       spinState.dragging = false;
       spinState.grabSide = 0;
       spinState.resumeAt = performance.now() + 900;
+      if ((currentState || 'idle') !== 'idle') spinState.focusYaw = nextForwardFront(spinState.yaw);
       canvas.style.cursor = 'grab';
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
     }
@@ -1769,7 +1894,7 @@ async function loadCortanaRig() {
       targetLeanX: 0, targetLeanZ: 0, targetYaw: 0, targetRoll: 0,
     };
 
-    function updateBodyLanguage(dt, now) {
+    function updateBodyLanguage(dt, now, orbitDt) {
       const state = currentState || 'idle';
       const t = now * 0.001;
       let talk = 0;
@@ -1778,12 +1903,14 @@ async function loadCortanaRig() {
       else if (state === 'thinking') talk = 0.12;
       talkUniform.value = THREE.MathUtils.clamp(talk, 0, 1);
 
-      flickerUniform.value = 0.92 + Math.sin(t * 17.3) * 0.04 + (Math.random() > 0.992 ? -0.12 : 0);
+      /* Stable hard-light shimmer only. Random full-body brightness drops read
+         as a scan/wave reset whenever the face came back around. */
+      flickerUniform.value = 0.975 + Math.sin(t * 11.4) * 0.015;
 
       if (state === 'idle') {
         bodyPose.targetLeanX = Math.sin(t * 0.55) * 0.03;
         bodyPose.targetLeanZ = Math.cos(t * 0.4) * 0.02;
-        bodyPose.targetYaw = Math.sin(t * 0.28) * 0.06;
+        bodyPose.targetYaw = 0;
         bodyPose.targetRoll = Math.sin(t * 0.35) * 0.02;
       } else if (state === 'listening') {
         bodyPose.targetLeanZ = 0.08;
@@ -1796,13 +1923,13 @@ async function loadCortanaRig() {
         bodyPose.targetYaw = -0.12 + Math.sin(t * 0.7) * 0.04;
         bodyPose.targetRoll = 0.05;
       } else if (state === 'speaking') {
-        const emphatic = avatar.classList.contains('tone-emphatic');
-        const caring = avatar.classList.contains('tone-caring');
+        const emphatic = avatar.dataset.intent === 'emphatic';
+        const caring = avatar.dataset.intent === 'caring';
         const amp = emphatic ? 1.45 : caring ? 0.7 : 1;
-        bodyPose.targetLeanZ = (0.04 + Math.sin(t * 3.4) * 0.05) * amp;
-        bodyPose.targetLeanX = Math.sin(t * 2.6) * 0.06 * amp;
-        bodyPose.targetYaw = Math.sin(t * 2.1) * 0.14 * amp;
-        bodyPose.targetRoll = Math.sin(t * 2.8) * 0.05 * amp;
+        bodyPose.targetLeanZ = (caring ? 0.085 : emphatic ? 0.11 : 0.055) + Math.sin(t * 3.4) * 0.045 * amp;
+        bodyPose.targetLeanX = Math.sin(t * 2.6) * (caring ? 0.035 : 0.06) * amp;
+        bodyPose.targetYaw = Math.sin(t * 2.1) * (caring ? 0.055 : 0.1) * amp;
+        bodyPose.targetRoll = (caring ? -0.035 : 0) + Math.sin(t * 2.8) * 0.04 * amp;
       }
 
       if (spinState.dragging && spinState.grabSide) {
@@ -1818,8 +1945,33 @@ async function loadCortanaRig() {
       bodyPose.roll += (bodyPose.targetRoll - bodyPose.roll) * ease;
       bodyPose.floatY = Math.sin(t * 1.15) * modelHeight * 0.012 + (state === 'speaking' ? Math.sin(t * 6.5) * modelHeight * 0.006 : 0);
 
-      if (!spinState.dragging && now > spinState.resumeAt) spinState.auto = true;
-      if (spinState.auto) spinState.yaw += spinState.speed * dt;
+      const interacting = state !== 'idle';
+      if (interacting && !spinState.wasInteracting) {
+        /* Keep turning in the same direction to the next front-facing position.
+           This avoids the backwards snap that a shortest-path angle creates. */
+        spinState.focusYaw = nextForwardFront(spinState.yaw);
+      }
+      if (!spinState.dragging) {
+        if (interacting) {
+          spinState.auto = false;
+          const remaining = Math.max(0, spinState.focusYaw - spinState.yaw);
+          const focusSpeed = THREE.MathUtils.clamp(remaining * 4.8, 0.5, 3.4);
+          spinState.yaw += Math.min(remaining, focusSpeed * dt);
+        } else if (now > spinState.resumeAt) {
+          spinState.auto = true;
+          /* Idle is one uninterrupted orbit. No modulo/reset or CSS transform
+             is allowed to replace the current orientation. Use real elapsed
+             time so a throttled/backgrounded tab does not lose its place. */
+          spinState.yaw += spinState.speed * orbitDt;
+        }
+      }
+      spinState.wasInteracting = interacting;
+      if (now - spinState.qaAt > 250) {
+        avatar.dataset.orbitYaw = spinState.yaw.toFixed(4);
+        avatar.dataset.orbitMode = spinState.dragging ? 'drag' : interacting ? 'focus' : 'orbit';
+        avatar.dataset.mouthVisible = state === 'speaking' ? 'true' : 'false';
+        spinState.qaAt = now;
+      }
 
       bodyRoot.position.y = bodyPose.floatY;
       bodyRoot.rotation.x = bodyPose.leanZ;
@@ -1830,21 +1982,32 @@ async function loadCortanaRig() {
 
     let pulseT = 0, lastFrame = performance.now();
     function animate(now) {
-      const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
+      const rawDt = Math.max(0, (now - lastFrame) / 1000);
+      const dt = Math.min(0.05, rawDt);
+      lastFrame = now;
       const speed = (states[currentState] && states[currentState].timeSpeed) || 0.012;
       pulseT += dt * speed * 40;
       swayUniform.value = pulseT * 0.55;
       const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
       for (const mat of emissiveMats) mat.emissiveIntensity = glow;
-      updateBodyLanguage(dt, now);
+      updateBodyLanguage(dt, now, rawDt);
       if (bodyPixels) bodyPixels.update(dt, now, currentState);
+      if (speechFace) {
+        speechFace.update(
+          currentState,
+          avatar.dataset.viseme,
+          avatar.dataset.intent,
+          talkUniform.value
+        );
+      }
       camera.lookAt(orbitTarget);
       renderer.render(scene, camera);
       cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, mount, resize, spinState, bodyPose };
+    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, speechFace, mount, resize, spinState, bodyPose };
     window.cortanaGLB = cortanaGLB;
+    avatar.dataset.glbReady = 'true';
     cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
     console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);
@@ -1900,7 +2063,11 @@ function setState(name) {
   const avatar = document.getElementById('cortanaAvatar');
   status.textContent = state.description;
   status.className = name;
-  if (avatar) avatar.className = `state-${name}`;
+  if (avatar) {
+    const glbClass = avatar.classList.contains('glb-active') ? ' glb-active' : '';
+    avatar.className = `state-${name}${glbClass}`;
+    if (name !== 'speaking') avatar.dataset.intent = 'neutral';
+  }
   if (name !== 'speaking') stopLipSync();
   if (orbCore) {
     orbCore.material.uniforms.coreColor.value.setHex(state.core);
@@ -1917,10 +2084,13 @@ function setSpeakingTone(text) {
   if (!avatar) return;
   const t = String(text || '').replace(/\b(UNSC|CTN|FGA|CRM|GHL|API|HTTP|URL|README|TTS|AI)\b/g, '');
   const bangs = (t.match(/!/g) || []).length;
-  const shouting = /\b[A-Z]{4,}\b/.test(t) || bangs >= 2;
-  const caring = /\b(sorry|proud|appreciate|thank|understand|care|rest|safe|with you|take care|i'm here)\b/i.test(t);
-  if (shouting) avatar.classList.add('tone-emphatic');
-  else if (caring) avatar.classList.add('tone-caring');
+  const shouting = /\b[A-Z]{4,}\b/.test(t) || bangs >= 2 ||
+    /\b(do this now|critical|must|non-negotiable|finish|protect|mission)\b/i.test(t);
+  const caring = /\b(sorry|proud|appreciate|thank|understand|care|rest|safe|with you|take care|i'm here|together|honest|chief)\b/i.test(t);
+  const intent = shouting ? 'emphatic' : caring ? 'caring' : 'neutral';
+  avatar.dataset.intent = intent;
+  if (intent === 'emphatic') avatar.classList.add('tone-emphatic');
+  else if (intent === 'caring') avatar.classList.add('tone-caring');
 }
 
 function initCortanaMotion() {
@@ -2731,7 +2901,10 @@ window.addEventListener('DOMContentLoaded', () => {
       setState(qaState);
       const avatar = document.getElementById('cortanaAvatar');
       const tone = qa.get('cortana-tone');
-      if (avatar && /^(caring|emphatic)$/.test(tone || '')) avatar.classList.add(`tone-${tone}`);
+      if (avatar && /^(caring|emphatic)$/.test(tone || '')) {
+        avatar.classList.add(`tone-${tone}`);
+        avatar.dataset.intent = tone;
+      }
       if (avatar && qa.get('cortana-viseme')) avatar.dataset.viseme = qa.get('cortana-viseme');
       if (avatar && qa.get('cortana-zoom') === '1') {
         avatar.style.width = 'min(76vw, 760px)';

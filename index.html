@@ -992,6 +992,7 @@
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 /* ============================================================
    C.O.R.T.A.N.A CORE — the character hologram is the visible
@@ -1355,10 +1356,11 @@ window.addEventListener('click', (e) => {
   }
 });
 
-async function loadCortanaRig() {
-  const avatar = document.getElementById('cortanaAvatar');
-  const mount = avatar && avatar.querySelector('.rigMount');
-  if (!mount) return;
+// Set to true if the model turns out to face away from camera after QA.
+const CORTANA_GLB_FACE_FLIP = false;
+let cortanaGLB = null; // { scene, camera, renderer, model, mount, resize }
+
+function mountCortanaPNG(avatar, mount) {
   const img = document.createElement('img');
   img.className = 'holoFigure';
   img.alt = '';
@@ -1373,6 +1375,97 @@ async function loadCortanaRig() {
   };
   img.src = 'assets/cortana-hologram.png';
   mount.replaceChildren(img);
+}
+
+async function loadCortanaRig() {
+  const avatar = document.getElementById('cortanaAvatar');
+  const mount = avatar && avatar.querySelector('.rigMount');
+  if (!mount) return;
+
+  if (!window.THREE || !window.THREE.GLTFLoader) {
+    console.warn('THREE.GLTFLoader unavailable; using PNG hologram');
+    mountCortanaPNG(avatar, mount);
+    return;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'holoFigure';
+  mount.replaceChildren(canvas);
+
+  try {
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.set(0, 0, 3);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    if ('outputEncoding' in renderer) renderer.outputEncoding = THREE.sRGBEncoding;
+
+    scene.add(new THREE.AmbientLight(0x9db9ff, 0.55));
+    const key = new THREE.DirectionalLight(0xdfefff, 1.7);
+    key.position.set(0.6, 1.4, 1.2);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x8eefff, 1.0);
+    rim.position.set(-1.1, 0.6, -0.9);
+    scene.add(rim);
+
+    const loader = new THREE.GLTFLoader();
+    const gltf = await new Promise((resolve, reject) => {
+      loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
+    });
+
+    const model = gltf.scene;
+    let emissiveMats = [];
+    model.traverse((node) => {
+      if (node.isMesh && node.material) {
+        node.material.side = THREE.DoubleSide;
+        if (node.material.emissiveMap) emissiveMats.push(node.material);
+      }
+    });
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    model.position.x -= center.x;
+    model.position.z -= center.z;
+    model.position.y -= box.min.y;
+    if (CORTANA_GLB_FACE_FLIP) model.rotation.y = Math.PI;
+    scene.add(model);
+
+    const modelHeight = box.max.y - box.min.y;
+
+    function resize() {
+      const w = mount.clientWidth || window.innerWidth * 0.4;
+      const h = mount.clientHeight || window.innerHeight * 0.5;
+      const aspect = w / h;
+      const frustumH = modelHeight * 1.05; // slight headroom, feet anchored to bottom
+      const frustumW = frustumH * aspect;
+      camera.left = -frustumW / 2; camera.right = frustumW / 2;
+      camera.bottom = 0; camera.top = frustumH;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false);
+      renderer.render(scene, camera);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Idle circuit-glow breathing on the emissive map, cadence tied to the
+    // existing state machine (idle/listening/thinking/speaking timeSpeed).
+    let pulseT = 0, lastFrame = performance.now();
+    function pulse(now) {
+      const dt = (now - lastFrame) / 1000; lastFrame = now;
+      const speed = (states[currentState] && states[currentState].timeSpeed) || 0.012;
+      pulseT += dt * speed * 40;
+      const glow = 0.85 + Math.sin(pulseT) * 0.25;
+      for (const mat of emissiveMats) mat.emissiveIntensity = glow;
+      if (emissiveMats.length) renderer.render(scene, camera);
+      cortanaGLB.raf = requestAnimationFrame(pulse);
+    }
+
+    cortanaGLB = { scene, camera, renderer, model, mount, resize };
+    cortanaGLB.raf = requestAnimationFrame(pulse);
+  } catch (err) {
+    console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);
+    mountCortanaPNG(avatar, mount);
+  }
 }
 
 let lipSyncTimer = null;

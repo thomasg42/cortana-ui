@@ -1802,38 +1802,154 @@ function addMsg(text, who, routing) {
 let currentAudio = null;
 function restState() { return (typeof convoMode !== 'undefined' && convoMode) ? 'listening' : 'idle'; }
 function doneSpeaking() { setState(restState()); resumeMic(); }
+
+/* ── Streaming speech ──────────────────────────────────────────
+   Cortana used to wait for the FULL reply text, then wait again for
+   ElevenLabs to render the FULL reply as one MP3, before any sound
+   played. On a four-sentence answer that is several dead seconds.
+
+   Now the reply is split into speakable chunks; chunk 1 is rendered
+   and played immediately while later chunks render in the background
+   (small lookahead so we stay ahead of playback without firing the
+   whole reply at ElevenLabs at once). Time-to-first-word drops to the
+   cost of one short sentence regardless of answer length.
+
+   SPEECH_TOKEN invalidates in-flight playback when Chief interrupts
+   or sends a new message, so a stale chunk can never talk over the
+   next answer.                                                      */
+const TTS_FIRST_MIN = 18;   // first chunk stays short — it sets time-to-first-word
+const TTS_MIN_CHUNK = 70;   // later chunks render during playback, so favour prosody
+const TTS_MAX_CHUNK = 240;  // don't render chunks so long they stall playback
+const TTS_TAIL_MERGE = 20;  // only a genuine scrap gets glued to the previous chunk
+const TTS_LOOKAHEAD = 2;    // chunks rendered ahead of the one playing
+let SPEECH_TOKEN = 0;
+
+/* Split on sentence ends, then glue short fragments up to TTS_MIN_CHUNK so
+   "Yes. Done." doesn't become two separate API calls. Abbreviations and
+   decimals are protected so "Mr. Reyes" / "$1,200.50" don't split. */
+function chunkForSpeech(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return [];
+  const guarded = clean
+    .replace(/\b(Mr|Mrs|Ms|Dr|Sr|Jr|St|vs|etc|Inc|Ltd|Co|approx|No)\./gi, '$1<DOT>')
+    .replace(/(\d)\.(\d)/g, '$1<DOT>$2');
+  const restore = (s) => s.replace(/<DOT>/g, '.');
+
+  const sentences = guarded.match(/[^.!?\n]+[.!?]*\n*/g) || [guarded];
+  const chunks = [];
+  let buf = '';
+  for (const raw of sentences) {
+    const piece = raw.trim();
+    if (!piece) continue;
+    if (piece.length > TTS_MAX_CHUNK) {
+      if (buf) { chunks.push(buf); buf = ''; }
+      // Long run-on with no sentence end — break it on commas/clauses.
+      let rest = piece;
+      while (rest.length > TTS_MAX_CHUNK) {
+        const window = rest.slice(0, TTS_MAX_CHUNK);
+        const cut = Math.max(window.lastIndexOf(', '), window.lastIndexOf('; '), window.lastIndexOf(' — '));
+        const at = cut > TTS_MIN_CHUNK ? cut + 1 : TTS_MAX_CHUNK;
+        chunks.push(rest.slice(0, at).trim());
+        rest = rest.slice(at).trim();
+      }
+      if (rest) buf = rest;
+      continue;
+    }
+    buf = buf ? buf + ' ' + piece : piece;
+    const floor = chunks.length === 0 ? TTS_FIRST_MIN : TTS_MIN_CHUNK;
+    if (buf.length >= floor) { chunks.push(buf); buf = ''; }
+  }
+  if (buf) {
+    // Only a genuine scrap joins the previous chunk; real sentences stand alone.
+    if (chunks.length && buf.length < TTS_TAIL_MERGE) chunks[chunks.length - 1] += ' ' + buf;
+    else chunks.push(buf);
+  }
+  return chunks.map(restore);
+}
+
+async function renderChunk(text) {
+  const r = await fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) throw new Error('TTS ' + r.status);
+  return r.blob();
+}
+
+function playBlob(blob, token) {
+  return new Promise((resolve, reject) => {
+    if (token !== SPEECH_TOKEN) { resolve(); return; }
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentAudio = audio;
+    const finish = (fn) => () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; fn(); };
+    audio.onended = finish(resolve);
+    audio.onerror = finish(() => reject(new Error('audio playback failed')));
+    audio.play().catch(finish(reject));
+  });
+}
+
+/* Cut Cortana off mid-sentence and hand the floor back to Chief. */
+function stopSpeaking() {
+  SPEECH_TOKEN++;
+  if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  if (typeof stopLipSync === 'function') { try { stopLipSync(); } catch (_) {} }
+  doneSpeaking();
+}
+window.cortanaStopSpeaking = stopSpeaking;
+
+function browserFallback(text, token) {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis || token !== SPEECH_TOKEN) { resolve(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.98; u.pitch = 1.0;
+    const voices = speechSynthesis.getVoices();
+    const preferred = voices.find(v => /Samantha|Serena|Ava|Zira|Google UK English Female|Google US English/i.test(v.name));
+    if (preferred) u.voice = preferred;
+    u.onend = () => resolve();
+    u.onerror = () => resolve();
+    speechSynthesis.speak(u);
+  });
+}
+
 async function speak(text) {
   if (!ttsEnabled) { doneSpeaking(); return; }
-  pauseMic(); // mic is dead while Cortana talks so she never hears herself
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  const token = ++SPEECH_TOKEN;           // supersede anything already talking
+  pauseMic();                             // mic is dead while Cortana talks so she never hears herself
+  if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
   if (window.speechSynthesis) speechSynthesis.cancel();
-  // ElevenLabs Sarah via server; fall back to a calm female browser voice.
+
+  const chunks = chunkForSpeech(text);
+  if (!chunks.length) { doneSpeaking(); return; }
+
+  // Kick off the first few renders immediately; top up as playback advances.
+  const pending = [];
+  const ensure = (i) => {
+    if (i < chunks.length && !pending[i]) pending[i] = renderChunk(chunks[i]);
+  };
+  for (let i = 0; i <= TTS_LOOKAHEAD && i < chunks.length; i++) ensure(i);
+
   try {
-    const r = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!r.ok) throw new Error('TTS ' + r.status);
-    const blob = await r.blob();
-    const audio = new Audio(URL.createObjectURL(blob));
-    currentAudio = audio;
-    audio.onended = () => { URL.revokeObjectURL(audio.src); currentAudio = null; doneSpeaking(); };
-    audio.onerror = () => { currentAudio = null; doneSpeaking(); };
-    await audio.play();
+    for (let i = 0; i < chunks.length; i++) {
+      if (token !== SPEECH_TOKEN) return;  // interrupted — drop the rest silently
+      ensure(i);
+      ensure(i + TTS_LOOKAHEAD);
+      const blob = await pending[i];
+      if (token !== SPEECH_TOKEN) return;
+      await playBlob(blob, token);
+    }
+    if (token === SPEECH_TOKEN) doneSpeaking();
     return;
   } catch (err) {
     console.warn('ElevenLabs TTS unavailable, using browser voice:', err.message);
   }
-  if (!window.speechSynthesis) { doneSpeaking(); return; }
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.98; u.pitch = 1.0;
-  const voices = speechSynthesis.getVoices();
-  const preferred = voices.find(v => /Samantha|Serena|Ava|Zira|Google UK English Female|Google US English/i.test(v.name));
-  if (preferred) u.voice = preferred;
-  u.onend = () => doneSpeaking();
-  u.onerror = () => doneSpeaking();
-  speechSynthesis.speak(u);
+
+  // Whole-reply browser fallback — only reached if ElevenLabs failed outright.
+  if (token !== SPEECH_TOKEN) return;
+  await browserFallback(text, token);
+  if (token === SPEECH_TOKEN) doneSpeaking();
 }
 
 async function sendMessage(text) {
@@ -1843,6 +1959,7 @@ async function sendMessage(text) {
     window.jarvisRemember(text);
     return;
   }
+  stopSpeaking();  // Chief has the floor — cut off any answer still playing
   addMsg(text, 'thomas');
   input.value = ''; input.style.height = 'auto';
   sendBtn.disabled = true;
@@ -1884,10 +2001,23 @@ function renderTts() { ttsBtn.textContent = ttsEnabled ? '🔊' : '🔇'; ttsBtn
 ttsBtn.addEventListener('click', () => {
   ttsEnabled = !ttsEnabled;
   localStorage.setItem('jarvis-tts', ttsEnabled ? 'on' : 'off');
-  if (!ttsEnabled) { speechSynthesis.cancel(); if (currentAudio) { currentAudio.pause(); currentAudio = null; } if (currentState === 'speaking') setState('idle'); }
+  if (!ttsEnabled) { stopSpeaking(); if (currentState === 'speaking') setState('idle'); }
   renderTts();
 });
 renderTts();
+
+/* Barge-in — Chief can cut Cortana off mid-sentence instead of waiting her out.
+   The mic stays closed while she speaks (open mic + speaker = she hears herself),
+   so interruption is by Escape or by tapping the Core avatar. */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && currentState === 'speaking') { e.preventDefault(); stopSpeaking(); }
+});
+const coreStage = document.getElementById('cortanaAvatar') || document.getElementById('holoField');
+if (coreStage) {
+  coreStage.style.cursor = 'pointer';
+  coreStage.title = 'Tap to interrupt Cortana (or press Esc)';
+  coreStage.addEventListener('click', () => { if (currentState === 'speaking') stopSpeaking(); });
+}
 
 /* Mic — continuous conversation mode.
    Click once: mic stays live. Speak → Jarvis answers → mic resumes listening.

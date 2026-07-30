@@ -993,6 +993,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 /* ============================================================
    C.O.R.T.A.N.A CORE — the character hologram is the visible
@@ -1414,23 +1415,59 @@ async function loadCortanaRig() {
     });
 
     const model = gltf.scene;
+    const box0 = new THREE.Box3().setFromObject(model); // raw local bounds, before recentering
+    const swayUniform = { value: 0 };
     let emissiveMats = [];
     model.traverse((node) => {
       if (node.isMesh && node.material) {
         node.material.side = THREE.DoubleSide;
         if (node.material.emissiveMap) emissiveMats.push(node.material);
+        // Gentle idle sway: displacement grows from 0 at the feet to a small
+        // max at the head, so the figure reads as alive without a skeleton.
+        node.material.onBeforeCompile = (shader) => {
+          shader.uniforms.uSway = swayUniform;
+          shader.uniforms.uMinY = { value: box0.min.y };
+          shader.uniforms.uMaxY = { value: box0.max.y };
+          shader.vertexShader = 'uniform float uSway;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
+          shader.vertexShader = shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>
+            float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
+            transformed.x += swayT * swayT * 0.05 * sin(uSway);
+            transformed.z += swayT * swayT * 0.03 * cos(uSway * 0.8);`
+          );
+        };
       }
     });
 
-    const box = new THREE.Box3().setFromObject(model);
-    const center = box.getCenter(new THREE.Vector3());
+    const center = box0.getCenter(new THREE.Vector3());
     model.position.x -= center.x;
     model.position.z -= center.z;
-    model.position.y -= box.min.y;
+    model.position.y -= box0.min.y;
     if (CORTANA_GLB_FACE_FLIP) model.rotation.y = Math.PI;
     scene.add(model);
 
-    const modelHeight = box.max.y - box.min.y;
+    const modelHeight = box0.max.y - box0.min.y;
+    const orbitTarget = new THREE.Vector3(0, modelHeight * 0.55, 0);
+    camera.position.set(0, modelHeight * 0.55, 3);
+
+    canvas.style.pointerEvents = 'auto';
+    canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'grab';
+    const controls = new THREE.OrbitControls(camera, canvas);
+    controls.target.copy(orbitTarget);
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.rotateSpeed = 0.6;
+    controls.minPolarAngle = Math.PI * 0.28;
+    controls.maxPolarAngle = Math.PI * 0.72;
+    controls.minZoom = 0.65;
+    controls.maxZoom = 2.4;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 1.6; // slow continuous 360, user drag overrides then resumes
+    controls.addEventListener('start', () => { canvas.style.cursor = 'grabbing'; });
+    controls.addEventListener('end', () => { canvas.style.cursor = 'grab'; });
 
     function resize() {
       const w = mount.clientWidth || window.innerWidth * 0.4;
@@ -1442,26 +1479,28 @@ async function loadCortanaRig() {
       camera.bottom = 0; camera.top = frustumH;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h, false);
-      renderer.render(scene, camera);
     }
     resize();
     window.addEventListener('resize', resize);
 
-    // Idle circuit-glow breathing on the emissive map, cadence tied to the
-    // existing state machine (idle/listening/thinking/speaking timeSpeed).
+    // Single continuous loop: orbit/auto-rotate, idle sway, and the
+    // circuit-glow breathing (cadence tied to the idle/listening/thinking/
+    // speaking state machine) all live-render every frame.
     let pulseT = 0, lastFrame = performance.now();
-    function pulse(now) {
+    function animate(now) {
       const dt = (now - lastFrame) / 1000; lastFrame = now;
       const speed = (states[currentState] && states[currentState].timeSpeed) || 0.012;
       pulseT += dt * speed * 40;
+      swayUniform.value = pulseT * 0.5;
       const glow = 0.85 + Math.sin(pulseT) * 0.25;
       for (const mat of emissiveMats) mat.emissiveIntensity = glow;
-      if (emissiveMats.length) renderer.render(scene, camera);
-      cortanaGLB.raf = requestAnimationFrame(pulse);
+      controls.update();
+      renderer.render(scene, camera);
+      cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, mount, resize };
-    cortanaGLB.raf = requestAnimationFrame(pulse);
+    cortanaGLB = { scene, camera, renderer, model, mount, resize, controls };
+    cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
     console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);
     mountCortanaPNG(avatar, mount);

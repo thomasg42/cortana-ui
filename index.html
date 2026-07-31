@@ -1525,9 +1525,9 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   return { points, geometry, material, update, count };
 }
 
-/* Production 4K Cortana mesh (cortana-3d.glb) is the visual source of truth.
-   Skinned Meshy export stays on disk for a later weight-transfer pass — it
-   currently draws as pixels-only (skinning/material bind issue in Core). */
+/* Production visual: cortana-3d-skinned-4k.glb — same 4K mesh/textures as
+   cortana-3d.glb with Meshy biped bones auto-weighted in Blender. Falls back
+   to unskinned 4K if the skinned file is missing. */
 function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
   const faceCanvas = document.createElement('canvas');
   faceCanvas.width = 256;
@@ -1665,12 +1665,20 @@ async function loadCortanaRig() {
     scene.add(ceilingSpot.target);
 
     const loader = new THREE.GLTFLoader();
-    const gltf = await new Promise((resolve, reject) => {
-      /* Always load the proven 4K visual mesh first. */
-      loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
+    const loadGltf = (url) => new Promise((resolve, reject) => {
+      loader.load(url, resolve, undefined, reject);
     });
+    /* Prefer bones-under-4K; never fall back to Meshy-only mesh (lost the look). */
+    let gltf;
+    try {
+      gltf = await loadGltf('assets/cortana-3d-skinned-4k.glb?v=skinned4k-20260731');
+    } catch (skinnedErr) {
+      console.warn('skinned-4K missing/failed; loading unskinned 4K', skinnedErr);
+      gltf = await loadGltf('assets/cortana-3d.glb');
+    }
 
     const model = gltf.scene;
+    model.updateMatrixWorld(true);
     const box0 = new THREE.Box3().setFromObject(model);
     const modelHeight = Math.max(0.001, box0.max.y - box0.min.y);
     const modelWidth = Math.max(0.001, box0.max.x - box0.min.x);
@@ -1679,6 +1687,7 @@ async function loadCortanaRig() {
     const talkUniform = { value: 0 };
     const flickerUniform = { value: 1 };
     let emissiveMats = [];
+    const skinnedMeshes = [];
 
     /* Bone map for procedural body language (Meshy humanoid names). */
     const BONE_NAMES = [
@@ -1690,7 +1699,14 @@ async function loadCortanaRig() {
     const bones = {};
     const bindRot = {};
     model.traverse((node) => {
-      if (node.isSkinnedMesh) node.frustumCulled = false;
+      if (node.isSkinnedMesh) {
+        node.frustumCulled = false;
+        skinnedMeshes.push(node);
+        if (node.geometry) {
+          node.geometry.computeBoundingSphere();
+          node.geometry.computeBoundingBox();
+        }
+      }
       if (BONE_NAMES.includes(node.name)) {
         bones[node.name] = node;
         bindRot[node.name] = {
@@ -1698,7 +1714,7 @@ async function loadCortanaRig() {
         };
       }
     });
-    const hasSkeleton = !!(bones.Head && (bones.LeftArm || bones.RightArm));
+    const hasSkeleton = !!(bones.Head && (bones.LeftArm || bones.RightArm) && skinnedMeshes.length);
     avatar.dataset.ligaments = hasSkeleton ? 'skinned' : 'none';
 
     let mixer = null;
@@ -1718,36 +1734,56 @@ async function loadCortanaRig() {
       const mats = Array.isArray(node.material) ? node.material : [node.material];
       mats.forEach((mat, idx) => {
         const holo = mat.clone();
-        holo.transparent = true;
-        holo.opacity = 0.94;
-        if (node.isSkinnedMesh) holo.skinning = true;
-        /* Self-occlusion is required for readable rotation. */
-        holo.depthWrite = true;
-        holo.side = THREE.FrontSide;
-        if ('emissive' in holo) {
-          holo.emissive = new THREE.Color(0x6ecfff);
-          holo.emissiveIntensity = 0.82;
+        /* r128: SkinnedMesh only deforms when material.skinning is true.
+           Keep opaque-ish depthWrite so she stays a solid figure, not a cloud. */
+        if (node.isSkinnedMesh) {
+          holo.skinning = true;
+          holo.transparent = true;
+          holo.opacity = 0.98;
+          holo.depthWrite = true;
+          holo.depthTest = true;
+          /* Blender glTF export often writes metalness=1 — clamps prevent white slab. */
+          if ('metalness' in holo) holo.metalness = Math.min(Number(holo.metalness) || 0, 0.12);
+          if ('roughness' in holo) holo.roughness = Math.max(Number(holo.roughness) || 0, 0.68);
+          /* Emissive + ACES on the 4K maps blows into a white rectangle. Keep off;
+             cyan hard-light comes from scene lights + texture. Do NOT push to emissiveMats. */
+          if ('emissive' in holo) {
+            holo.emissive = new THREE.Color(0x000000);
+            holo.emissiveIntensity = 0;
+          }
+        } else {
+          holo.transparent = true;
+          holo.opacity = 0.94;
+          holo.depthWrite = true;
+          holo.side = THREE.FrontSide;
+          if ('emissive' in holo) {
+            holo.emissive = new THREE.Color(0x6ecfff);
+            holo.emissiveIntensity = 0.82;
+          }
+          if (holo.emissiveMap) emissiveMats.push(holo);
         }
-        if (holo.emissiveMap) emissiveMats.push(holo);
-        holo.onBeforeCompile = (shader) => {
-          shader.uniforms.uSway = swayUniform;
-          shader.uniforms.uTalk = talkUniform;
-          shader.uniforms.uFlicker = flickerUniform;
-          shader.uniforms.uMinY = { value: box0.min.y };
-          shader.uniforms.uMaxY = { value: box0.max.y };
-          shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
-          /* Whole-body hologram sway on the solid 4K mesh (no regional limb warps). */
-          shader.vertexShader = shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            `#include <begin_vertex>
+        holo.side = THREE.FrontSide;
+        /* Custom begin_vertex / output_fragment holo wash breaks SkinnedMesh
+           on r128 (white slab). Unskinned mesh keeps the old wash. */
+        if (!node.isSkinnedMesh) {
+          holo.onBeforeCompile = (shader) => {
+            shader.uniforms.uSway = swayUniform;
+            shader.uniforms.uTalk = talkUniform;
+            shader.uniforms.uFlicker = flickerUniform;
+            shader.uniforms.uMinY = { value: box0.min.y };
+            shader.uniforms.uMaxY = { value: box0.max.y };
+            shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace(
+              '#include <begin_vertex>',
+              `#include <begin_vertex>
             float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
             transformed.x += swayT * swayT * (0.035 + uTalk * 0.04) * sin(uSway);
             transformed.z += swayT * swayT * (0.022 + uTalk * 0.03) * cos(uSway * 0.85);`
-          );
-          shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <output_fragment>',
-            `#include <output_fragment>
+            );
+            shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <output_fragment>',
+              `#include <output_fragment>
             vec3 holoTint = vec3(0.45, 0.82, 1.0);
             gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + holoTint * 0.22, 0.55) * (0.86 + 0.14 * uFlicker);
             float luma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
@@ -1755,8 +1791,10 @@ async function loadCortanaRig() {
             vec3 cortanaCyan = vec3(0.38, 0.84, 1.0) * luma * 1.45;
             gl_FragColor.rgb = mix(gl_FragColor.rgb, cortanaCyan, warmBias);
             gl_FragColor.a *= 0.78 + 0.14 * uFlicker;`
-          );
-        };
+            );
+          };
+        }
+        holo.needsUpdate = true;
         if (Array.isArray(node.material)) node.material[idx] = holo;
         else node.material = holo;
       });
@@ -2052,10 +2090,19 @@ async function loadCortanaRig() {
       const speed = (states[currentState] && states[currentState].timeSpeed) || 0.012;
       pulseT += dt * speed * 40;
       swayUniform.value = pulseT * 0.55;
-      const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
-      for (const mat of emissiveMats) mat.emissiveIntensity = glow;
+      /* Skinned 4K path keeps emissive at 0 — pulsing it whites out the maps. */
+      if (!hasSkeleton) {
+        const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
+        for (const mat of emissiveMats) mat.emissiveIntensity = glow;
+      }
       if (mixer) mixer.update(dt);
       updateBodyLanguage(dt, now, rawDt);
+      if (hasSkeleton) {
+        model.updateMatrixWorld(true);
+        for (const sm of skinnedMeshes) {
+          if (sm.skeleton) sm.skeleton.update();
+        }
+      }
       if (bodyPixels) bodyPixels.update(dt, now, currentState);
       if (speechFace) {
         speechFace.update(

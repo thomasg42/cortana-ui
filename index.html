@@ -1550,7 +1550,13 @@ function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
     new THREE.PlaneGeometry(modelWidth * 0.115, modelHeight * 0.043),
     material
   );
-  plane.position.set(0, modelHeight * 0.842, modelDepth * 0.535);
+  /* Measured off the actual skinned-4K mesh (top-14%-by-height vertex slab =
+     the head): 0.535 depth was the front-most point of the WHOLE BODY (bust),
+     not the face, so the mouth rendered near her chest, worst when she'd
+     turned away from a straight-on view. 0.392 is the head region's own
+     front surface; 0.923 height sits just below the head-slab centroid
+     (eye-line), i.e. mouth height. */
+  plane.position.set(0, modelHeight * 0.923, modelDepth * 0.392);
   plane.renderOrder = 40;
   plane.visible = false;
   bodyRoot.add(plane);

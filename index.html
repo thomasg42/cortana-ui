@@ -1525,8 +1525,9 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   return { points, geometry, material, update, count };
 }
 
-/* Skinned Meshy GLB (cortana-3d-rigged.glb): 24 joints + skin weights.
-   Falls back to unskinned cortana-3d.glb if the rigged asset is missing. */
+/* Production 4K Cortana mesh (cortana-3d.glb) is the visual source of truth.
+   Skinned Meshy export stays on disk for a later weight-transfer pass — it
+   currently draws as pixels-only (skinning/material bind issue in Core). */
 function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
   const faceCanvas = document.createElement('canvas');
   faceCanvas.width = 256;
@@ -1665,11 +1666,8 @@ async function loadCortanaRig() {
 
     const loader = new THREE.GLTFLoader();
     const gltf = await new Promise((resolve, reject) => {
-      const onErr = (err) => {
-        console.warn('Rigged Cortana GLB missing; falling back to unskinned', err);
-        loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
-      };
-      loader.load('assets/cortana-3d-rigged.glb', resolve, undefined, onErr);
+      /* Always load the proven 4K visual mesh first. */
+      loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
     });
 
     const model = gltf.scene;
@@ -1738,13 +1736,13 @@ async function loadCortanaRig() {
           shader.uniforms.uMinY = { value: box0.min.y };
           shader.uniforms.uMaxY = { value: box0.max.y };
           shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
-          /* Light hologram breathe only — limbs come from real bones. */
+          /* Whole-body hologram sway on the solid 4K mesh (no regional limb warps). */
           shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
             float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
-            transformed.x += swayT * swayT * (0.012 + uTalk * 0.015) * sin(uSway);
-            transformed.z += swayT * swayT * (0.008 + uTalk * 0.01) * cos(uSway * 0.85);`
+            transformed.x += swayT * swayT * (0.035 + uTalk * 0.04) * sin(uSway);
+            transformed.z += swayT * swayT * (0.022 + uTalk * 0.03) * cos(uSway * 0.85);`
           );
           shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
           shader.fragmentShader = shader.fragmentShader.replace(

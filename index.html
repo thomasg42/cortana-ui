@@ -1392,7 +1392,8 @@ function mountCortanaPNG(avatar, mount) {
 
 /* Pixels are sampled from Cortana's real mesh instead of emitted by a generic
    screen-space column. They begin on her surface, drift down and outward,
-   enlarge, fade, and respawn — so the data flow stays attached during a 360. */
+   enlarge, fade, and respawn — so the data flow stays attached during a 360.
+   Tuned denser/sharper ("8K" phosphor) so the field reads refined, not chunky. */
 function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   bodyRoot.updateMatrixWorld(true);
   model.updateMatrixWorld(true);
@@ -1404,7 +1405,7 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
     if (!node.isMesh || !node.geometry || !node.geometry.attributes.position) return;
     const attr = node.geometry.attributes.position;
     const toRoot = new THREE.Matrix4().multiplyMatrices(rootInverse, node.matrixWorld);
-    const stride = Math.max(1, Math.floor(attr.count / 3600));
+    const stride = Math.max(1, Math.floor(attr.count / 14000));
     for (let i = 0; i < attr.count; i += stride) {
       point.fromBufferAttribute(attr, i).applyMatrix4(toRoot);
       samples.push(point.clone());
@@ -1412,7 +1413,7 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   });
   if (!samples.length) return null;
 
-  const count = Math.min(820, Math.max(420, Math.floor(samples.length * 0.22)));
+  const count = Math.min(3200, Math.max(1600, Math.floor(samples.length * 0.45)));
   const positions = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
   const alphas = new Float32Array(count);
@@ -1442,7 +1443,7 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
     directions[i * 2] = dx;
     directions[i * 2 + 1] = dz;
     phases[i] = Math.random();
-    speeds[i] = 0.055 + Math.random() * 0.075;
+    speeds[i] = 0.04 + Math.random() * 0.055;
     noise[i] = Math.random() * Math.PI * 2;
   }
 
@@ -1454,8 +1455,8 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Color(0x75ddff) },
-      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+      uColor: { value: new THREE.Color(0x8ae7ff) },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 3) },
     },
     vertexShader: `
       attribute float aSize;
@@ -1468,7 +1469,7 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
         vAlpha = aAlpha;
         vGlow = aGlow;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = aSize * uPixelRatio;
+        gl_PointSize = max(0.55, aSize * uPixelRatio);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -1479,9 +1480,10 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
       void main() {
         vec2 p = abs(gl_PointCoord - 0.5);
         float edge = max(p.x, p.y);
-        float square = 1.0 - smoothstep(0.34, 0.5, edge);
-        float core = 1.0 - smoothstep(0.0, 0.32, edge);
-        vec3 color = uColor + vec3(0.28, 0.36, 0.42) * core * vGlow;
+        /* Crisp phosphor square — tight AA, bright micro-core. */
+        float square = 1.0 - smoothstep(0.40, 0.495, edge);
+        float core = 1.0 - smoothstep(0.0, 0.22, edge);
+        vec3 color = uColor + vec3(0.32, 0.42, 0.5) * core * vGlow;
         gl_FragColor = vec4(color, vAlpha * square);
       }
     `,
@@ -1498,21 +1500,21 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
 
   function update(dt, now, state) {
     const t = now * 0.001;
-    const boost = state === 'speaking' ? 1.55 : state === 'listening' ? 1.2 : 1;
+    const boost = state === 'speaking' ? 1.45 : state === 'listening' ? 1.15 : 1;
     for (let i = 0; i < count; i++) {
       phases[i] = (phases[i] + dt * speeds[i] * boost) % 1;
       const phase = phases[i];
-      const flow = Math.pow(phase, 1.45);
+      const flow = Math.pow(phase, 1.55);
       const j = i * 3;
       const d = i * 2;
-      const sideways = Math.sin(t * 1.4 + noise[i] + phase * 5.0) * modelWidth * 0.012;
-      const outward = modelWidth * (0.025 + flow * 0.13) * flow;
+      const sideways = Math.sin(t * 1.55 + noise[i] + phase * 5.2) * modelWidth * 0.008;
+      const outward = modelWidth * (0.018 + flow * 0.1) * flow;
       positions[j] = bases[j] + directions[d] * outward + directions[d + 1] * sideways;
-      positions[j + 1] = bases[j + 1] - modelHeight * (0.018 + flow * 0.16);
+      positions[j + 1] = bases[j + 1] - modelHeight * (0.012 + flow * 0.12);
       positions[j + 2] = bases[j + 2] + directions[d + 1] * outward - directions[d] * sideways;
-      sizes[i] = 1.7 + flow * 7.2;
-      alphas[i] = (0.2 + Math.sin(Math.PI * phase) * 0.64) * (state === 'speaking' ? 1.12 : 1);
-      glow[i] = 0.45 + Math.sin(noise[i] + t * 2.2) * 0.22 + flow * 0.45;
+      sizes[i] = 0.55 + flow * 2.35;
+      alphas[i] = (0.16 + Math.sin(Math.PI * phase) * 0.58) * (state === 'speaking' ? 1.1 : 1);
+      glow[i] = 0.4 + Math.sin(noise[i] + t * 2.4) * 0.18 + flow * 0.4;
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aSize.needsUpdate = true;
@@ -1523,9 +1525,8 @@ function buildBodyPixelField(model, bodyRoot, modelHeight, modelWidth) {
   return { points, geometry, material, update, count };
 }
 
-/* The production GLB is one solid mesh (no skeleton / clips / morphs). Soft
-   regional limb warps were tried and pulled — they demorphed forearms and
-   knees. Motion stays whole-body lean/sway + speech face until a skinned GLB. */
+/* Skinned Meshy GLB (cortana-3d-rigged.glb): 24 joints + skin weights.
+   Falls back to unskinned cortana-3d.glb if the rigged asset is missing. */
 function buildSpeechFace(bodyRoot, modelHeight, modelWidth, modelDepth) {
   const faceCanvas = document.createElement('canvas');
   faceCanvas.width = 256;
@@ -1664,7 +1665,11 @@ async function loadCortanaRig() {
 
     const loader = new THREE.GLTFLoader();
     const gltf = await new Promise((resolve, reject) => {
-      loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
+      const onErr = (err) => {
+        console.warn('Rigged Cortana GLB missing; falling back to unskinned', err);
+        loader.load('assets/cortana-3d.glb', resolve, undefined, reject);
+      };
+      loader.load('assets/cortana-3d-rigged.glb', resolve, undefined, onErr);
     });
 
     const model = gltf.scene;
@@ -1677,6 +1682,39 @@ async function loadCortanaRig() {
     const flickerUniform = { value: 1 };
     let emissiveMats = [];
 
+    /* Bone map for procedural body language (Meshy humanoid names). */
+    const BONE_NAMES = [
+      'Hips', 'Spine', 'Spine01', 'Spine02', 'neck', 'Head',
+      'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand',
+      'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand',
+      'LeftUpLeg', 'LeftLeg', 'RightUpLeg', 'RightLeg',
+    ];
+    const bones = {};
+    const bindRot = {};
+    model.traverse((node) => {
+      if (node.isSkinnedMesh) node.frustumCulled = false;
+      if (BONE_NAMES.includes(node.name)) {
+        bones[node.name] = node;
+        bindRot[node.name] = {
+          x: node.rotation.x, y: node.rotation.y, z: node.rotation.z,
+        };
+      }
+    });
+    const hasSkeleton = !!(bones.Head && (bones.LeftArm || bones.RightArm));
+    avatar.dataset.ligaments = hasSkeleton ? 'skinned' : 'none';
+
+    let mixer = null;
+    let idleAction = null;
+    /* Procedural bone posing owns limb language (talk/listen/think/drag).
+       Clip playback is available but kept at weight 0 so it does not fight
+       absolute joint targets each frame. Walk/run GLBs remain for later. */
+    if (gltf.animations && gltf.animations.length && hasSkeleton) {
+      mixer = new THREE.AnimationMixer(model);
+      idleAction = mixer.clipAction(gltf.animations[0]);
+      idleAction.play();
+      idleAction.setEffectiveWeight(0);
+    }
+
     model.traverse((node) => {
       if (!node.isMesh || !node.material) return;
       const mats = Array.isArray(node.material) ? node.material : [node.material];
@@ -1684,19 +1722,14 @@ async function loadCortanaRig() {
         const holo = mat.clone();
         holo.transparent = true;
         holo.opacity = 0.94;
-        /* Self-occlusion is required for readable rotation. The previous
-           depthWrite:false DoubleSide ghost blended her far side through her
-           near side, so a mathematically monotonic orbit still LOOKED like a
-           ~180° reversal with a face swap (silhouette-ambiguity illusion). */
+        if (node.isSkinnedMesh) holo.skinning = true;
+        /* Self-occlusion is required for readable rotation. */
         holo.depthWrite = true;
         holo.side = THREE.FrontSide;
         if ('emissive' in holo) {
           holo.emissive = new THREE.Color(0x6ecfff);
           holo.emissiveIntensity = 0.82;
         }
-        /* Keep the baked glow silhouette, but force Cortana cyan — the stock
-           emissive map paints a gold/orange "obsidian" cluster on her hip that
-           fights the rest of her body palette. */
         if (holo.emissiveMap) emissiveMats.push(holo);
         holo.onBeforeCompile = (shader) => {
           shader.uniforms.uSway = swayUniform;
@@ -1705,23 +1738,20 @@ async function loadCortanaRig() {
           shader.uniforms.uMinY = { value: box0.min.y };
           shader.uniforms.uMaxY = { value: box0.max.y };
           shader.vertexShader = 'uniform float uSway;\nuniform float uTalk;\nuniform float uMinY;\nuniform float uMaxY;\n' + shader.vertexShader;
+          /* Light hologram breathe only — limbs come from real bones. */
           shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
             float swayT = clamp((position.y - uMinY) / max(uMaxY - uMinY, 0.0001), 0.0, 1.0);
-            /* Whole-body hologram sway only — no regional limb warps.
-               Soft elbow/knee bands demorphed the 4K mesh; real joints need a skinned GLB. */
-            transformed.x += swayT * swayT * (0.035 + uTalk * 0.04) * sin(uSway);
-            transformed.z += swayT * swayT * (0.022 + uTalk * 0.03) * cos(uSway * 0.85);`
+            transformed.x += swayT * swayT * (0.012 + uTalk * 0.015) * sin(uSway);
+            transformed.z += swayT * swayT * (0.008 + uTalk * 0.01) * cos(uSway * 0.85);`
           );
           shader.fragmentShader = 'uniform float uFlicker;\n' + shader.fragmentShader;
           shader.fragmentShader = shader.fragmentShader.replace(
             '#include <output_fragment>',
             `#include <output_fragment>
-            /* Hard-light wash + soft flicker — no traveling scan. */
             vec3 holoTint = vec3(0.45, 0.82, 1.0);
             gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + holoTint * 0.22, 0.55) * (0.86 + 0.14 * uFlicker);
-            /* Gold/orange baked emissive → Cortana cyan (keep luminance, force hue). */
             float luma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
             float warmBias = smoothstep(0.04, 0.28, max(gl_FragColor.r, gl_FragColor.g) - gl_FragColor.b);
             vec3 cortanaCyan = vec3(0.38, 0.84, 1.0) * luma * 1.45;
@@ -1852,6 +1882,81 @@ async function loadCortanaRig() {
       targetLeanX: 0, targetLeanZ: 0, targetYaw: 0, targetRoll: 0,
     };
 
+    function setBone(name, dx, dy, dz, ease) {
+      const bone = bones[name];
+      const bind = bindRot[name];
+      if (!bone || !bind) return;
+      bone.rotation.x += ((bind.x + dx) - bone.rotation.x) * ease;
+      bone.rotation.y += ((bind.y + dy) - bone.rotation.y) * ease;
+      bone.rotation.z += ((bind.z + dz) - bone.rotation.z) * ease;
+    }
+
+    function updateSkeletonPose(state, t, intent, ease) {
+      if (!hasSkeleton) return;
+      const emphatic = intent === 'emphatic';
+      const caring = intent === 'caring';
+      let headNod = 0, headTilt = 0, headTurn = 0;
+      let armRX = 0, armRZ = 0, armLX = 0, armLZ = 0;
+      let foreRX = 0, foreLX = 0, spineZ = 0;
+      let hipY = 0, legRX = 0, legLX = 0;
+
+      if (state === 'idle') {
+        headNod = Math.sin(t * 0.7) * 0.04;
+        headTilt = Math.sin(t * 0.45) * 0.05;
+        headTurn = Math.sin(t * 0.32) * 0.03;
+        armRZ = Math.sin(t * 0.85) * 0.08;
+        armLZ = Math.sin(t * 0.85 + 1.4) * -0.08;
+        foreRX = 0.08 + Math.sin(t * 0.9) * 0.04;
+        foreLX = -0.08 + Math.sin(t * 0.9 + 1.1) * -0.04;
+        hipY = Math.sin(t * 0.4) * 0.03;
+        legRX = Math.sin(t * 0.4) * 0.03;
+        legLX = Math.sin(t * 0.4 + Math.PI) * 0.03;
+      } else if (state === 'listening') {
+        headNod = 0.08 + Math.sin(t * 1.1) * 0.03;
+        headTilt = 0.1;
+        armRZ = 0.12; armLZ = -0.1;
+        foreRX = 0.22; foreLX = -0.18;
+        spineZ = 0.04;
+      } else if (state === 'thinking') {
+        headNod = 0.12; headTilt = -0.14; headTurn = -0.1;
+        armRZ = 0.55; foreRX = 1.15; // right hand toward chin
+        armLZ = -0.15; foreLX = -0.35;
+        spineZ = 0.05;
+      } else if (state === 'speaking') {
+        const amp = emphatic ? 1.5 : caring ? 0.7 : 1;
+        headNod = (0.05 + Math.sin(t * 3.5) * 0.07) * amp;
+        headTilt = Math.sin(t * 2.4) * 0.06 * amp;
+        headTurn = Math.sin(t * 2.0) * 0.05 * amp;
+        armRZ = (0.1 + Math.sin(t * 2.8) * 0.22) * amp;
+        armLZ = (-0.08 + Math.sin(t * 2.5 + 1.6) * -0.18) * amp;
+        foreRX = (caring ? 0.45 : 0.25 + Math.sin(t * 3.0) * 0.2) * amp;
+        foreLX = (caring ? -0.42 : -0.22 + Math.sin(t * 2.7 + 1.2) * -0.18) * amp;
+        spineZ = Math.sin(t * 2.2) * 0.04 * amp;
+      }
+
+      if (spinState.dragging && spinState.grabSide) {
+        if (spinState.grabSide > 0) {
+          armRZ += 0.55; foreRX += 0.35; headTurn += 0.12;
+        } else {
+          armLZ -= 0.55; foreLX -= 0.35; headTurn -= 0.12;
+        }
+      }
+
+      setBone('Head', headNod, headTurn, headTilt, ease);
+      setBone('neck', headNod * 0.35, headTurn * 0.4, headTilt * 0.35, ease);
+      setBone('Spine02', 0, 0, spineZ, ease);
+      setBone('Spine01', 0, 0, spineZ * 0.6, ease);
+      setBone('RightArm', armRX, 0, armRZ, ease);
+      setBone('LeftArm', armLX, 0, armLZ, ease);
+      setBone('RightForeArm', foreRX, 0, 0, ease);
+      setBone('LeftForeArm', foreLX, 0, 0, ease);
+      setBone('RightHand', Math.sin(t * 2.2) * 0.08, 0, 0, ease);
+      setBone('LeftHand', Math.sin(t * 2.2 + 1) * -0.08, 0, 0, ease);
+      setBone('Hips', 0, hipY, 0, ease);
+      setBone('RightUpLeg', legRX, 0, 0, ease);
+      setBone('LeftUpLeg', legLX, 0, 0, ease);
+    }
+
     function updateBodyLanguage(dt, now, orbitDt) {
       const state = currentState || 'idle';
       const t = now * 0.001;
@@ -1897,11 +2002,14 @@ async function loadCortanaRig() {
       }
 
       const ease = 1 - Math.exp(-dt * 5.5);
+      const boneEase = 1 - Math.exp(-dt * 7.0);
       bodyPose.leanX += (bodyPose.targetLeanX - bodyPose.leanX) * ease;
       bodyPose.leanZ += (bodyPose.targetLeanZ - bodyPose.leanZ) * ease;
       bodyPose.yaw += (bodyPose.targetYaw - bodyPose.yaw) * ease;
       bodyPose.roll += (bodyPose.targetRoll - bodyPose.roll) * ease;
       bodyPose.floatY = Math.sin(t * 1.15) * modelHeight * 0.012 + (state === 'speaking' ? Math.sin(t * 6.5) * modelHeight * 0.006 : 0);
+
+      updateSkeletonPose(state, t, avatar.dataset.intent || 'neutral', boneEase);
 
       const interacting = state !== 'idle';
       if (interacting && !spinState.wasInteracting) beginFocus(now);
@@ -1948,6 +2056,7 @@ async function loadCortanaRig() {
       swayUniform.value = pulseT * 0.55;
       const glow = 0.45 + Math.sin(pulseT) * 0.2 + talkUniform.value * 0.35;
       for (const mat of emissiveMats) mat.emissiveIntensity = glow;
+      if (mixer) mixer.update(dt);
       updateBodyLanguage(dt, now, rawDt);
       if (bodyPixels) bodyPixels.update(dt, now, currentState);
       if (speechFace) {
@@ -1963,10 +2072,10 @@ async function loadCortanaRig() {
       cortanaGLB.raf = requestAnimationFrame(animate);
     }
 
-    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, speechFace, mount, resize, spinState, bodyPose };
+    cortanaGLB = { scene, camera, renderer, model, bodyRoot, bodyPixels, speechFace, mount, resize, spinState, bodyPose, bones, mixer, hasSkeleton };
     window.cortanaGLB = cortanaGLB;
     avatar.dataset.glbReady = 'true';
-    avatar.dataset.ligaments = 'none';
+    if (!avatar.dataset.ligaments) avatar.dataset.ligaments = hasSkeleton ? 'skinned' : 'none';
     cortanaGLB.raf = requestAnimationFrame(animate);
   } catch (err) {
     console.warn('Cortana 3D model failed to load; falling back to PNG hologram', err);

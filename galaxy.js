@@ -23,6 +23,20 @@
   let targetCamera = new THREE.Vector3(0, 0, 10.5);
   let lookTarget = new THREE.Vector3(0, 0.2, 0);
   let targetLook = new THREE.Vector3(0, 0.2, 0);
+
+  /* One camera model for the whole Galaxy: a look point, a direction and a
+     distance. Zoom only ever changes the distance, so scrolling out undoes a
+     scroll in exactly — and every zoom-out ends with the Halo centered again,
+     because past the home distance the drilled-in anchor is released and the
+     ring is the frame once more. */
+  const HOME_LOOK = new THREE.Vector3(0, .1, 0);
+  const HOME_OFFSET = new THREE.Vector3(0, .2, 10.5);
+  const HOME_DIR = HOME_OFFSET.clone().normalize();
+  const HOME_DIST = HOME_OFFSET.length();
+  const MIN_DIST = 1.7;
+  const MAX_DIST = 17;
+  let focusAnchor = null;
+  let zoomDist = HOME_DIST;
   let dragging = false;
   let dragStart = { x: 0, y: 0 };
   let rotationStart = { x: 0, y: 0 };
@@ -40,6 +54,42 @@
     return x - Math.floor(x);
   };
   const cssHex = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
+  const clampDist = (d) => Math.max(MIN_DIST, Math.min(MAX_DIST, d));
+
+  function applyFraming() {
+    if (!focusAnchor) {
+      targetLook.copy(HOME_LOOK);
+      targetCamera.copy(HOME_LOOK).addScaledVector(HOME_DIR, zoomDist);
+      return;
+    }
+    const span = HOME_DIST - focusAnchor.dist;
+    const t = span > .05 ? Math.max(0, Math.min(1, (zoomDist - focusAnchor.dist) / span)) : 1;
+    const look = focusAnchor.look.clone().lerp(HOME_LOOK, t);
+    const dir = focusAnchor.dir.clone().lerp(HOME_DIR, t).normalize();
+    targetLook.copy(look);
+    targetCamera.copy(look).addScaledVector(dir, zoomDist);
+    // Fully zoomed back out — hand the frame back to the Halo.
+    if (t >= 1) focusAnchor = null;
+  }
+
+  function focusOn(worldPoint, offset) {
+    const framing = offset.lengthSq() > 1e-6 ? offset.clone() : HOME_OFFSET.clone();
+    focusAnchor = {
+      look: worldPoint.clone(),
+      dir: framing.clone().normalize(),
+      dist: Math.min(clampDist(framing.length()), HOME_DIST - .6),
+    };
+    zoomDist = focusAnchor.dist;
+    applyFraming();
+    lastInteraction = Date.now();
+  }
+
+  function goHome() {
+    focusAnchor = null;
+    zoomDist = HOME_DIST;
+    applyFraming();
+    lastInteraction = Date.now();
+  }
 
   function buildChrome() {
     galaxyBackdrop = document.createElement('div');
@@ -495,10 +545,11 @@
     hovered = activeNode = null;
     if (!useGalaxy) closeDrilldown();
     if (useGalaxy) {
-      targetCamera.set(0, .3, 10.5);
-      targetLook.set(0, .1, 0);
+      goHome();
       setState('idle');
     } else {
+      focusAnchor = null;
+      zoomDist = HOME_DIST;
       targetCamera.set(0, 0, 3);
       targetLook.set(0, 0, 0);
     }
@@ -550,29 +601,118 @@
     if (!node || !nodePositions[node.id]) return;
     setView('galaxy');
     const world = nodePositions[node.id].clone().applyEuler(galaxy.rotation);
-    targetLook.copy(world);
     const direction = world.clone().normalize();
     if (direction.lengthSq() < .01) direction.set(0, 0, 1);
-    targetCamera.copy(world.clone().add(direction.multiplyScalar(2.5)).add(new THREE.Vector3(0, .25, 1.8)));
+    focusOn(world, direction.multiplyScalar(2.5).add(new THREE.Vector3(0, .25, 1.8)));
     highlight([node.id]);
     showSource(node, cited);
-    lastInteraction = Date.now();
   }
 
-  // Topic drill-down — zoom into a legend group ("topic"), then regroup its
-  // notes by Year / YouTube / Business / Class. All four dimensions are
+  // Topic drill-down / outline — zoom into a legend group ("topic") or a
+  // spoken request ("give me all the YouTube videos"), then regroup those
+  // notes by Topic / Year / YouTube / Business / Class. All dimensions are
   // best-effort fields computed server-side in buildKnowledgeGraph; every
-  // topic always shows all four tabs, defaulting to whichever one carries
-  // the single biggest sub-cluster for THIS topic (most nodes under one
-  // label wins the opening view — Thomas can still switch tabs manually).
-  const DIM_LABELS = { year: 'Year', youtube: 'YouTube', business: 'Business', class: 'Class' };
-  let drilldownState = null; // { group, nodeIds, tab, subValue }
+  // view shows all its tabs, defaulting to whichever one carries the single
+  // biggest sub-cluster for THIS set (most nodes under one label wins the
+  // opening view — Thomas can still switch tabs manually).
+  const DIM_LABELS = { topic: 'Topic', year: 'Year', youtube: 'YouTube', business: 'Business', class: 'Class' };
+  const TOPIC_DIMS = ['year', 'youtube', 'business', 'class'];
+  const OUTLINE_DIMS = ['topic', 'year', 'youtube', 'business', 'class'];
+  const OUTLINE_NOTE_BUDGET = 300;
+  let drilldownState = null; // { mode, title, group, nodeIds, tab, subValue }
 
   function subClusterKey(node, dimension) {
+    if (dimension === 'topic') return node.group || 'Unclassified';
     if (dimension === 'year') return node.year || 'Unclassified';
     if (dimension === 'youtube') return node.youtube ? node.youtube.channel : 'No video source';
     if (dimension === 'business') return node.business || 'Unclassified';
     return node.class || 'Unclassified';
+  }
+
+  /* The "little ideation" under each note — one readable line of what this
+     thing actually is. Vault pages come in two shapes: plain markdown, and
+     knowledge-base pages that open with their own title and a FOLDER /
+     DESTINATION-ID header block. For the second shape the source video's own
+     title is the useful line; otherwise take the first real prose sentence.
+     Only real field names end the header run — a bare acronym like "SEO:"
+     inside a title must not be mistaken for one. */
+  const KB_FIELD = /(?:^|\s)(?:VIDEO|DOCUMENT|DESTINATION|KNOWLEDGE|FOLDER|CHANNEL|CREATOR|SOURCE|CATEGORY|HANDLE|STATUS|TAGS|DATE|URL|LINK|CAPTURED|CREATED|UPDATED|OWNER)\b[A-Z0-9 ]*:/;
+  const normKey = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+  function stripLeadingLabel(text, label) {
+    const target = normKey(label);
+    if (target.length < 8) return text;
+    let seen = '';
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i].toLowerCase();
+      if (/[a-z0-9]/.test(ch)) {
+        seen += ch;
+        if (!target.startsWith(seen)) return text;
+        if (seen.length === target.length) return text.slice(i + 1);
+      }
+    }
+    return text;
+  }
+
+  /* A field value ends at the next header field. If there is no next field the
+     excerpt itself may have been cut short, so say so rather than ending on
+     half a word. */
+  function untilField(value) {
+    const stop = value.search(KB_FIELD);
+    if (stop > 0) return value.slice(0, stop).trim();
+    const cut = value.trim();
+    return /[.!?)"']$/.test(cut) ? cut : cut + '…';
+  }
+
+  function nodeIdeation(node) {
+    if (!node) return '';
+    if (node.redacted) return 'Private topology · open the local core to read this note.';
+    if (node.idea) return trimIdea(node.idea);
+    const raw = String(node.excerpt || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    const label = String(node.label || '').trim();
+
+    // A field only earns the line if it says something the title doesn't.
+    const usable = (value) => value.length > 8
+      && !/^https?:/i.test(value)
+      && !normKey(value).startsWith(normKey(label).slice(0, 24));
+
+    const titled = raw.match(/\b(?:VIDEO|DOCUMENT)\s+TITLE:\s*(\S.*)$/);
+    if (titled) {
+      const value = untilField(titled[1]);
+      if (usable(value)) return trimIdea(value);
+    }
+    const sourced = raw.match(/\bSource video:\s*(\S.*)$/i);
+    if (sourced) {
+      const value = untilField(sourced[1]).replace(/\s*\(YouTube\)\s*…?$/i, '').trim();
+      if (usable(value)) return trimIdea(value);
+    }
+
+    const lead = /^[\s*·|,:;>)\]"'-]+/;
+    let text = stripLeadingLabel(raw, label).replace(/=+/g, ' ').replace(/-{3,}/g, ' ');
+    // Skip past a knowledge-base header block to the prose underneath it.
+    const header = text.match(/DESTINATION FOLDER ID:\s*\S+/i);
+    if (header) text = text.slice(text.indexOf(header[0]) + header[0].length);
+    text = stripLeadingLabel(text.replace(lead, '').trim(), label);
+    text = text
+      .replace(/\*+/g, '')
+      .replace(/^\s*FOREVER GOLD AI\s*[—-]?\s*(?:KNOWLEDGE BASE|BUILD)?\s*DOCUMENT\s*/i, '')
+      .replace(lead, '')
+      // Drop the provenance stamp notes open with; the gist is what follows.
+      .replace(/^(?:Source|Captured|Date ingested|Ingested|Added)\s*:?\s*/i, '')
+      .replace(/^(?:manual|sync-projects|drive-sync-check|import|Drive|Telegram)\s*[—·-]+\s*\d{4}-\d{2}-\d{2}\.?\s*/i, '')
+      .replace(lead, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.length < 14 || /^https?:/i.test(text) ? '' : trimIdea(text);
+  }
+
+  function trimIdea(text, max = 132) {
+    const clean = String(text).replace(/\s+/g, ' ').trim();
+    if (clean.length <= max) return clean;
+    const cut = clean.slice(0, max);
+    const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf(' — '), cut.lastIndexOf(' '));
+    return (stop > max * .5 ? cut.slice(0, stop) : cut).replace(/[\s,;:—-]+$/, '') + '…';
   }
 
   function computeSubClusters(nodeIds, dimension) {
@@ -589,11 +729,11 @@
   }
 
   const DRILL_EMPTY_LABELS = new Set(['Unclassified', 'No video source']);
-  function bestDimension(nodeIds) {
+  function bestDimension(nodeIds, dims = TOPIC_DIMS) {
     // Prefer whichever dimension has the biggest REAL sub-cluster — an
     // "Unclassified" catch-all winning by size isn't a useful default tab.
-    let best = 'class', bestCount = -1;
-    for (const dim of Object.keys(DIM_LABELS)) {
+    let best = dims[dims.length - 1], bestCount = -1;
+    for (const dim of dims) {
       const clusters = computeSubClusters(nodeIds, dim);
       const top = clusters.find((c) => !DRILL_EMPTY_LABELS.has(c.label)) || clusters[0];
       if (top && top.ids.length > bestCount) { bestCount = top.ids.length; best = dim; }
@@ -607,12 +747,10 @@
     nodeIds.forEach((id) => { if (nodePositions[id]) center.add(nodePositions[id]); });
     center.divideScalar(nodeIds.length);
     const world = center.clone().applyEuler(galaxy.rotation);
-    targetLook.copy(world);
     const direction = world.clone().normalize();
     if (direction.lengthSq() < .01) direction.set(0, 0, 1);
     const spread = nodeIds.length > 1 ? 2.15 + Math.sqrt(nodeIds.length) * .16 : 2.5;
-    targetCamera.copy(world.clone().add(direction.multiplyScalar(spread)).add(new THREE.Vector3(0, .25, 1.6)));
-    lastInteraction = Date.now();
+    focusOn(world, direction.multiplyScalar(spread).add(new THREE.Vector3(0, .25, 1.6)));
   }
 
   function zoomToTopic(group) {
@@ -626,8 +764,23 @@
   }
 
   function openDrilldown(group, nodeIds) {
-    drilldownState = { group, nodeIds, tab: bestDimension(nodeIds), subValue: null };
+    drilldownState = { mode: 'topic', title: group, group, nodeIds, tab: bestDimension(nodeIds, TOPIC_DIMS), subValue: null };
     document.querySelectorAll('.legendItem').forEach((el) => el.classList.toggle('active', el.dataset.group === group));
+    document.getElementById('topicDrilldown').classList.add('open');
+    renderDrilldown();
+  }
+
+  function openOutline({ title, nodeIds, dimension }) {
+    const dims = OUTLINE_DIMS;
+    drilldownState = {
+      mode: 'outline',
+      title,
+      group: null,
+      nodeIds,
+      tab: dims.includes(dimension) ? dimension : bestDimension(nodeIds, dims),
+      subValue: null,
+    };
+    document.querySelectorAll('.legendItem').forEach((el) => el.classList.remove('active'));
     document.getElementById('topicDrilldown').classList.add('open');
     renderDrilldown();
   }
@@ -639,28 +792,53 @@
     if (panel) panel.classList.remove('open');
   }
 
+  function noteRow(id) {
+    const node = graphData.nodes[id];
+    const idea = nodeIdeation(node);
+    return `<button class="drillNote" data-node="${id}"><span class="dnTitle">${escapeHtml(node.label)}</span>${idea ? `<span class="dnIdea">${escapeHtml(idea)}</span>` : ''}</button>`;
+  }
+
+  /* The outline: every note in the set, grouped under its sub-cluster with a
+     one-line gist, so "give me all the YouTube videos" reads as a scannable
+     list instead of an anonymous cloud of stars. Picking one cluster focuses
+     it; picking it again reopens the whole outline. */
   function renderDrilldown() {
     if (!drilldownState) return;
     const panel = document.getElementById('topicDrilldown');
-    const { group, nodeIds, tab, subValue } = drilldownState;
+    const { mode, title, nodeIds, tab, subValue } = drilldownState;
+    const dims = mode === 'outline' ? OUTLINE_DIMS : TOPIC_DIMS;
     const clusters = computeSubClusters(nodeIds, tab);
-    const activeCluster = subValue ? clusters.find((c) => c.label === subValue) : null;
+    let budget = OUTLINE_NOTE_BUDGET;
+    const sections = clusters.map((c) => {
+      const open = subValue ? c.label === subValue : true;
+      let body = '';
+      if (open) {
+        const shown = c.ids.slice(0, Math.max(0, budget));
+        budget -= shown.length;
+        const rest = c.ids.length - shown.length;
+        body = `<div class="drillNotes">${shown.map(noteRow).join('')}${rest > 0 ? `<div class="drillMore">+${rest} more — pick this group to focus it</div>` : ''}</div>`;
+      }
+      return `<div class="drillSection${open ? ' open' : ''}">
+        <button class="drillCluster${c.label === subValue ? ' active' : ''}" data-sub="${escapeHtml(c.label)}">${escapeHtml(c.label)} <b>${c.ids.length}</b></button>
+        ${body}
+      </div>`;
+    }).join('');
     panel.innerHTML = `
       <div class="drillHead">
         <button class="drillBack" data-action="drillClose">◄ Full galaxy</button>
-        <div class="drillTitle">${escapeHtml(group)} <b>${nodeIds.length}</b></div>
+        <div class="drillTitle">${escapeHtml(title)} <b>${nodeIds.length}</b></div>
       </div>
-      <div class="drillTabs">${Object.entries(DIM_LABELS).map(([key, label]) => `<button class="drillTab ${key === tab ? 'active' : ''}" data-tab="${key}">${label}</button>`).join('')}</div>
-      <div class="drillClusters">${clusters.map((c) => `<button class="drillCluster ${c.label === subValue ? 'active' : ''}" data-sub="${escapeHtml(c.label)}">${escapeHtml(c.label)} <b>${c.ids.length}</b></button>`).join('')}</div>
-      ${activeCluster ? `<div class="drillNotes">${activeCluster.ids.map((id) => `<button class="drillNote" data-node="${id}">${escapeHtml(graphData.nodes[id].label)}</button>`).join('')}</div>` : ''}
+      <div class="drillTabs">${dims.map((key) => `<button class="drillTab ${key === tab ? 'active' : ''}" data-tab="${key}">${DIM_LABELS[key]}</button>`).join('')}</div>
+      <div class="drillOutline">${sections}</div>
     `;
+    panel.querySelector('.drillOutline').scrollTop = 0;
   }
 
   function handleDrilldownClick(e) {
     if (!drilldownState) return;
     if (e.target.closest('[data-action="drillClose"]')) {
       closeDrilldown();
-      targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
+      goHome();
       return;
     }
     const tabBtn = e.target.closest('[data-tab]');
@@ -687,18 +865,90 @@
     }
   }
 
+  /* Asking for a kind of thing in conversation ("give me all the YouTube
+     videos", "show me every Kraken note") outlines that whole set in the
+     Galaxy instead of leaving Thomas to hunt for stars by hand. Matching is
+     local and deterministic — it never calls a model — and it only fires on
+     a collection-shaped ask so ordinary chat is left alone. */
+  const OUTLINE_CUE = /\b(all|every|list|show|give|find|group|outline|where|map|pull\s*up)\b/i;
+  const OUTLINE_SET_CUE = /\b(all|every|list|group|outline)\b/i;
+  const OUTLINE_STOPWORDS = new Set([
+    'all', 'every', 'list', 'show', 'give', 'find', 'group', 'outline', 'where', 'map', 'pull',
+    'the', 'them', 'these', 'those', 'that', 'this', 'and', 'for', 'with', 'from', 'about',
+    'into', 'have', 'has', 'are', 'was', 'were', 'you', 'your', 'me', 'my', 'our', 'please',
+    'cortana', 'chief', 'notes', 'note', 'stuff', 'things', 'thing', 'everything', 'anything',
+    'what', 'which', 'got', 'get', 'want', 'need', 'lets', 'let', 'can', 'could', 'would',
+  ]);
+
+  function resolveOutline(text) {
+    if (!graphData || !graphData.nodes.length) return null;
+    const q = String(text || '').toLowerCase();
+    if (!OUTLINE_CUE.test(q)) return null;
+    const pick = (filter) => graphData.nodes.filter(filter).map((n) => n.id);
+
+    if (/\b(youtube|video|videos|vids|vid)\b/.test(q)) {
+      const ids = pick((n) => !!n.youtube);
+      if (ids.length > 1) return { title: 'YouTube videos', nodeIds: ids, dimension: 'topic' };
+    }
+    for (const group of graphData.groups) {
+      const name = String(group).toLowerCase();
+      if (name.length > 2 && (q.includes(name) || q.includes(name.replace(/s$/, '')))) {
+        const ids = pick((n) => n.group === group);
+        if (ids.length > 1) return { title: group, nodeIds: ids, dimension: bestDimension(ids, OUTLINE_DIMS) };
+      }
+    }
+    for (const dim of ['business', 'class']) {
+      const values = [...new Set(graphData.nodes.map((n) => n[dim]).filter(Boolean))];
+      for (const value of values) {
+        const name = String(value).toLowerCase();
+        if (name.length > 3 && q.includes(name)) {
+          const ids = pick((n) => n[dim] === value);
+          if (ids.length > 1) return { title: value, nodeIds: ids, dimension: dim === 'business' ? 'class' : 'topic' };
+        }
+      }
+    }
+    const year = q.match(/\b(20\d{2})\b/);
+    if (year) {
+      const ids = pick((n) => n.year === year[1]);
+      if (ids.length > 1) return { title: year[1], nodeIds: ids, dimension: 'topic' };
+    }
+    if (!OUTLINE_SET_CUE.test(q)) return null;
+    const terms = q.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/)
+      .filter((w) => w.length > 3 && !OUTLINE_STOPWORDS.has(w));
+    if (!terms.length) return null;
+    const ids = pick((n) => {
+      const hay = `${n.label} ${n.path} ${n.excerpt || ''}`.toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
+    if (ids.length > 2) return { title: `“${terms.join(' ')}”`, nodeIds: ids, dimension: 'topic' };
+    return null;
+  }
+
+  window.cortanaOutlineQuery = (text) => {
+    const match = resolveOutline(text);
+    if (!match) return false;
+    setView('galaxy');
+    highlight(match.nodeIds);
+    flyToCentroid(match.nodeIds);
+    openOutline(match);
+    return true;
+  };
+
   window.cortanaTraceSources = (sources) => {
     if (!sources || !sources.length || !graphData) return;
     const nodes = sources.map((src) => graphData.nodes.find((n) => n.path === src.path)).filter(Boolean);
     if (!nodes.length) return;
     setView('galaxy');
     highlight(nodes.map((n) => n.id));
+    // An outline Thomas just asked for outranks the answer's own citations —
+    // don't yank the panel or the camera out from under it.
+    if (drilldownState && drilldownState.mode === 'outline') { showSource(nodes[0], true); return; }
     const groups = new Set(nodes.map((n) => n.group));
     if (groups.size === 1) openDrilldown([...groups][0], nodes.map((n) => n.id));
     else closeDrilldown();
     if (nodes.length < 4) flyToNode(nodes[0], true);
     else {
-      targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
+      goHome();
       showSource(nodes[0], true);
     }
   };
@@ -766,13 +1016,15 @@
     });
     window.addEventListener('wheel', (e) => {
       if (!window.cortanaGalaxyActive || overUI(e)) return;
-      targetCamera.z = Math.max(3.2, Math.min(17, targetCamera.z + e.deltaY * .008));
+      // Multiplicative: N clicks out exactly undo N clicks in, and the last
+      // click out always lands back on the Halo-centred home frame.
+      zoomDist = clampDist(zoomDist * Math.exp(e.deltaY * .0014));
+      applyFraming();
       lastInteraction = Date.now();
     }, { passive: true });
     window.addEventListener('dblclick', (e) => {
       if (!window.cortanaGalaxyActive || overUI(e)) return;
-      targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
-      lastInteraction = Date.now();
+      goHome();
       document.getElementById('sourceCard').classList.remove('open');
       closeDrilldown();
     });
@@ -783,9 +1035,11 @@
     if (haloWorld && haloWorld.userData.spinner) haloWorld.userData.spinner.rotation.y += .0006;
     const idleFor = Date.now() - lastInteraction;
     if (!dragging && idleFor > 3500) galaxy.rotation.y += .00034;
-    if (!dragging && idleFor > 9500) {
+    // Idle breathing only belongs to the home frame — once Thomas has zoomed
+    // into something, the camera stays where he parked it.
+    if (!dragging && idleFor > 9500 && !focusAnchor) {
       const t = Date.now() * .0001;
-      targetCamera.set(Math.sin(t) * .72, .25 + Math.sin(t * 1.7) * .24, 10.2 + Math.cos(t * .82) * .7);
+      targetCamera.set(Math.sin(t) * .72, .25 + Math.sin(t * 1.7) * .24, zoomDist - .3 + Math.cos(t * .82) * .7);
       targetLook.set(Math.sin(t * .7) * .2, Math.cos(t * .9) * .12, 0);
     }
     camera.position.lerp(targetCamera, .045);

@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>C.O.R.T.A.N.A — FGA</title>
-<link rel="stylesheet" href="galaxy.css?v=20260730-universe-v1" />
+<link rel="stylesheet" href="galaxy.css?v=20260803-outline-v1" />
 <style>
   :root {
     --arc: #35ff9d;
@@ -864,7 +864,7 @@
 </div>
 
 <script src="remote-config.js?v=20260715-corelink"></script>
-<script src="graph-data.js?v=20260715-corelink"></script>
+<script src="graph-data.js?v=20260803-outline-v1"></script>
 <script src="auth-gate.js?v=20260730-corelink-auth"></script>
 <script>
 function lsGet(key, legacyKey) {
@@ -2625,6 +2625,9 @@ async function sendMessage(text) {
   }
   stopSpeaking();  // Chief has the floor — cut off any answer still playing
   addMsg(text, 'thomas');
+  // "Give me all the YouTube videos" outlines that set in the Galaxy while
+  // the answer is still being written — see resolveOutline in galaxy.js.
+  if (window.cortanaOutlineQuery) window.cortanaOutlineQuery(text);
   input.value = ''; input.style.height = 'auto';
   sendBtn.disabled = true;
   setState('thinking');
@@ -3064,6 +3067,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>
-<script src="galaxy.js?v=20260730-universe-v1"></script>
+<script src="galaxy.js?v=20260803-outline-v1"></script>
 </body>
 </html>

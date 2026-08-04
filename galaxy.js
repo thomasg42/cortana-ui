@@ -75,6 +75,11 @@
     source.innerHTML = '<div class="sourceEyebrow">Source node</div><div class="sourceTitle"></div><div class="sourcePath"></div><div class="sourceExcerpt"></div><div class="sourceActions"><button data-action="open">Open note</button><button data-action="context">+ Context</button></div>';
     document.body.appendChild(source);
 
+    const drilldown = document.createElement('aside');
+    drilldown.id = 'topicDrilldown';
+    document.body.appendChild(drilldown);
+    drilldown.addEventListener('click', handleDrilldownClick);
+
     view.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-view]');
       if (btn) setView(btn.dataset.view);
@@ -83,6 +88,10 @@
     source.querySelector('[data-action="context"]').addEventListener('click', () => {
       if (activeNode && !activeNode.redacted && !contextFiles.includes(activeNode.path)) { contextFiles.push(activeNode.path); renderChips(); }
       source.classList.remove('open');
+    });
+    document.getElementById('galaxyLegend').addEventListener('click', (e) => {
+      const item = e.target.closest('[data-group]');
+      if (item) zoomToTopic(item.dataset.group);
     });
     renderDayRail();
     setInterval(renderDayRail, 60 * 1000);
@@ -465,7 +474,8 @@
       return acc;
     }, {});
     document.getElementById('galaxyMeta').textContent = `${data.noteCount} notes  ·  ${data.links.length} connections  ·  complete vault map  ·  private text stays local`;
-    document.getElementById('galaxyLegend').innerHTML = data.groups.map((g, i) => `<span class="legendItem"><i style="--c:${cssHex(COLORS[i % COLORS.length])}"></i>${escapeHtml(g)} <b>${counts[g] || 0}</b></span>`).join('');
+    document.getElementById('galaxyLegend').innerHTML = data.groups.map((g, i) => `<button class="legendItem" data-group="${escapeHtml(g)}"><i style="--c:${cssHex(COLORS[i % COLORS.length])}"></i>${escapeHtml(g)} <b>${counts[g] || 0}</b></button>`).join('');
+    closeDrilldown();
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
@@ -483,6 +493,7 @@
     if (vaultGraph) vaultGraph.visible = false;
     document.getElementById('sourceCard').classList.remove('open');
     hovered = activeNode = null;
+    if (!useGalaxy) closeDrilldown();
     if (useGalaxy) {
       targetCamera.set(0, .3, 10.5);
       targetLook.set(0, .1, 0);
@@ -548,12 +559,143 @@
     lastInteraction = Date.now();
   }
 
+  // Topic drill-down — zoom into a legend group ("topic"), then regroup its
+  // notes by Year / YouTube / Business / Class. All four dimensions are
+  // best-effort fields computed server-side in buildKnowledgeGraph; every
+  // topic always shows all four tabs, defaulting to whichever one carries
+  // the single biggest sub-cluster for THIS topic (most nodes under one
+  // label wins the opening view — Thomas can still switch tabs manually).
+  const DIM_LABELS = { year: 'Year', youtube: 'YouTube', business: 'Business', class: 'Class' };
+  let drilldownState = null; // { group, nodeIds, tab, subValue }
+
+  function subClusterKey(node, dimension) {
+    if (dimension === 'year') return node.year || 'Unclassified';
+    if (dimension === 'youtube') return node.youtube ? node.youtube.channel : 'No video source';
+    if (dimension === 'business') return node.business || 'Unclassified';
+    return node.class || 'Unclassified';
+  }
+
+  function computeSubClusters(nodeIds, dimension) {
+    const byLabel = new Map();
+    for (const id of nodeIds) {
+      const node = graphData.nodes[id];
+      const key = subClusterKey(node, dimension);
+      if (!byLabel.has(key)) byLabel.set(key, []);
+      byLabel.get(key).push(id);
+    }
+    return [...byLabel.entries()]
+      .map(([label, ids]) => ({ label, ids }))
+      .sort((a, b) => b.ids.length - a.ids.length);
+  }
+
+  const DRILL_EMPTY_LABELS = new Set(['Unclassified', 'No video source']);
+  function bestDimension(nodeIds) {
+    // Prefer whichever dimension has the biggest REAL sub-cluster — an
+    // "Unclassified" catch-all winning by size isn't a useful default tab.
+    let best = 'class', bestCount = -1;
+    for (const dim of Object.keys(DIM_LABELS)) {
+      const clusters = computeSubClusters(nodeIds, dim);
+      const top = clusters.find((c) => !DRILL_EMPTY_LABELS.has(c.label)) || clusters[0];
+      if (top && top.ids.length > bestCount) { bestCount = top.ids.length; best = dim; }
+    }
+    return best;
+  }
+
+  function flyToCentroid(nodeIds) {
+    if (!nodeIds.length) return;
+    const center = new THREE.Vector3();
+    nodeIds.forEach((id) => { if (nodePositions[id]) center.add(nodePositions[id]); });
+    center.divideScalar(nodeIds.length);
+    const world = center.clone().applyEuler(galaxy.rotation);
+    targetLook.copy(world);
+    const direction = world.clone().normalize();
+    if (direction.lengthSq() < .01) direction.set(0, 0, 1);
+    const spread = nodeIds.length > 1 ? 2.15 + Math.sqrt(nodeIds.length) * .16 : 2.5;
+    targetCamera.copy(world.clone().add(direction.multiplyScalar(spread)).add(new THREE.Vector3(0, .25, 1.6)));
+    lastInteraction = Date.now();
+  }
+
+  function zoomToTopic(group) {
+    if (!graphData) return;
+    const nodeIds = graphData.nodes.filter((n) => n.group === group).map((n) => n.id);
+    if (!nodeIds.length) return;
+    setView('galaxy');
+    highlight(nodeIds);
+    flyToCentroid(nodeIds);
+    openDrilldown(group, nodeIds);
+  }
+
+  function openDrilldown(group, nodeIds) {
+    drilldownState = { group, nodeIds, tab: bestDimension(nodeIds), subValue: null };
+    document.querySelectorAll('.legendItem').forEach((el) => el.classList.toggle('active', el.dataset.group === group));
+    document.getElementById('topicDrilldown').classList.add('open');
+    renderDrilldown();
+  }
+
+  function closeDrilldown() {
+    drilldownState = null;
+    document.querySelectorAll('.legendItem').forEach((el) => el.classList.remove('active'));
+    const panel = document.getElementById('topicDrilldown');
+    if (panel) panel.classList.remove('open');
+  }
+
+  function renderDrilldown() {
+    if (!drilldownState) return;
+    const panel = document.getElementById('topicDrilldown');
+    const { group, nodeIds, tab, subValue } = drilldownState;
+    const clusters = computeSubClusters(nodeIds, tab);
+    const activeCluster = subValue ? clusters.find((c) => c.label === subValue) : null;
+    panel.innerHTML = `
+      <div class="drillHead">
+        <button class="drillBack" data-action="drillClose">◄ Full galaxy</button>
+        <div class="drillTitle">${escapeHtml(group)} <b>${nodeIds.length}</b></div>
+      </div>
+      <div class="drillTabs">${Object.entries(DIM_LABELS).map(([key, label]) => `<button class="drillTab ${key === tab ? 'active' : ''}" data-tab="${key}">${label}</button>`).join('')}</div>
+      <div class="drillClusters">${clusters.map((c) => `<button class="drillCluster ${c.label === subValue ? 'active' : ''}" data-sub="${escapeHtml(c.label)}">${escapeHtml(c.label)} <b>${c.ids.length}</b></button>`).join('')}</div>
+      ${activeCluster ? `<div class="drillNotes">${activeCluster.ids.map((id) => `<button class="drillNote" data-node="${id}">${escapeHtml(graphData.nodes[id].label)}</button>`).join('')}</div>` : ''}
+    `;
+  }
+
+  function handleDrilldownClick(e) {
+    if (!drilldownState) return;
+    if (e.target.closest('[data-action="drillClose"]')) {
+      closeDrilldown();
+      targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
+      return;
+    }
+    const tabBtn = e.target.closest('[data-tab]');
+    if (tabBtn) { drilldownState.tab = tabBtn.dataset.tab; drilldownState.subValue = null; renderDrilldown(); return; }
+    const subBtn = e.target.closest('[data-sub]');
+    if (subBtn) {
+      const label = subBtn.dataset.sub;
+      const wasActive = drilldownState.subValue === label;
+      drilldownState.subValue = wasActive ? null : label;
+      renderDrilldown();
+      if (!wasActive) {
+        const cluster = computeSubClusters(drilldownState.nodeIds, drilldownState.tab).find((c) => c.label === label);
+        if (cluster) { flyToCentroid(cluster.ids); highlight(cluster.ids); }
+      } else {
+        flyToCentroid(drilldownState.nodeIds);
+        highlight(drilldownState.nodeIds);
+      }
+      return;
+    }
+    const noteBtn = e.target.closest('[data-node]');
+    if (noteBtn) {
+      const node = graphData.nodes[Number(noteBtn.dataset.node)];
+      if (node) flyToNode(node);
+    }
+  }
+
   window.cortanaTraceSources = (sources) => {
     if (!sources || !sources.length || !graphData) return;
     const nodes = sources.map((src) => graphData.nodes.find((n) => n.path === src.path)).filter(Boolean);
     if (!nodes.length) return;
     setView('galaxy');
     highlight(nodes.map((n) => n.id));
+    const groups = new Set(nodes.map((n) => n.group));
+    if (groups.size === 1) openDrilldown([...groups][0], nodes.map((n) => n.id));
+    else closeDrilldown();
     if (nodes.length < 4) flyToNode(nodes[0], true);
     else {
       targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
@@ -632,6 +774,7 @@
       targetCamera.set(0, .3, 10.5); targetLook.set(0, .1, 0);
       lastInteraction = Date.now();
       document.getElementById('sourceCard').classList.remove('open');
+      closeDrilldown();
     });
   }
 

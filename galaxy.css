@@ -183,10 +183,22 @@ body.galaxy-view #galaxyBackdrop {
 
 body.galaxy-view #galaxyLegend { display: flex; }
 .legendItem {
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 8px 2px 4px;
+  background: transparent;
   color: rgba(212, 255, 230, .58);
   font: 8px/1.2 "SF Mono", Menlo, monospace;
   letter-spacing: .08em;
   text-transform: uppercase;
+}
+.legendItem:hover { border-color: rgba(75, 255, 168, .3); color: rgba(214, 255, 230, .88); }
+.legendItem.active {
+  border-color: rgba(255, 196, 46, .5);
+  background: rgba(255, 196, 46, .08);
+  color: var(--gold);
 }
 .legendItem b {
   color: rgba(255, 255, 255, .4);
@@ -201,6 +213,123 @@ body.galaxy-view #galaxyLegend { display: flex; }
   background: var(--c);
   box-shadow: 0 0 8px var(--c);
 }
+
+/* Topic drill-down — Level 2/3 of the Galaxy zoom: zoom into a legend
+   "topic", regroup its notes by Year / YouTube / Business / Class, drill
+   into one sub-cluster to fly deeper and list its individual notes. */
+#topicDrilldown {
+  position: fixed;
+  z-index: 42;
+  top: 146px;
+  left: 16px;
+  width: min(320px, calc(100vw - 32px));
+  max-height: calc(100vh - 300px);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(75, 255, 168, .28);
+  border-radius: 6px;
+  background: linear-gradient(145deg, rgba(5, 14, 10, .94), rgba(6, 24, 15, .88));
+  backdrop-filter: blur(16px);
+  box-shadow: 0 0 50px rgba(60, 240, 150, .12);
+  pointer-events: auto;
+}
+#topicDrilldown.open { display: flex; }
+.drillHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid rgba(75, 255, 168, .12);
+}
+.drillBack {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--arc);
+  font: 8px/1 "Avenir Next", sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.drillBack:hover { color: var(--gold); }
+.drillTitle {
+  color: var(--ink);
+  font: 11px/1.2 "Avenir Next", sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drillTitle b { color: var(--gold); font-weight: 600; margin-left: 4px; }
+.drillTabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+.drillTab {
+  flex: 1;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font: 8px/1 "SF Mono", Menlo, monospace;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.drillTab.active {
+  color: #04140b;
+  background: linear-gradient(90deg, var(--gold), #55ffab);
+  border-color: transparent;
+}
+.drillClusters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  max-height: 160px;
+}
+.drillCluster {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: transparent;
+  color: rgba(212, 255, 230, .68);
+  font: 8px/1.2 "SF Mono", Menlo, monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.drillCluster b { color: rgba(255, 255, 255, .4); font-weight: 500; margin-left: 3px; }
+.drillCluster:hover { border-color: rgba(75, 255, 168, .4); }
+.drillCluster.active {
+  border-color: rgba(255, 196, 46, .5);
+  background: rgba(255, 196, 46, .1);
+  color: var(--gold);
+}
+.drillNotes {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-top: 1px solid rgba(75, 255, 168, .12);
+  padding: 6px 4px 10px;
+}
+.drillNote {
+  border: 0;
+  border-radius: 3px;
+  padding: 7px 10px;
+  background: transparent;
+  color: rgba(214, 255, 232, .78);
+  font: 11px/1.4 "Avenir Next", sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.drillNote:hover { background: rgba(75, 255, 168, .08); color: var(--ink); }
 
 #sourceCard {
   position: fixed;
@@ -362,6 +491,7 @@ body.galaxy-view #chiefPanel {
   #dayRail { display: none; }
   #galaxyMeta { top: 96px; }
   #sourceCard { top: 130px; right: 8px; }
+  #topicDrilldown { top: 130px; left: 8px; }
 }
 
 @media (max-width: 720px) {
@@ -381,7 +511,7 @@ body.galaxy-view #chiefPanel {
         transparent 100%),
       linear-gradient(180deg, rgba(0, 2, 7, .04), transparent 67%, rgba(0, 2, 7, .36));
   }
-  #viewSwitch { top: 54px; }
+  #viewSwitch { top: 102px; }
   .viewBtn { min-width: 62px; padding: 6px 10px; }
   #galaxyMeta { display: none; }
   #galaxyLegend {
@@ -396,8 +526,37 @@ body.galaxy-view #chiefPanel {
   .legendItem { font-size: 6.5px; }
   #galaxyHint { bottom: 134px; width: 100%; text-align: center; }
   #sourceCard { left: 8px; right: 8px; width: auto; max-height: 42vh; }
-  #chiefPanel { right: -70px; width: 58vw; opacity: .22; }
-  .chiefCopy { display: none; }
+  #topicDrilldown { left: 8px; right: 8px; width: auto; max-height: 46vh; }
+  #chiefPanel {
+    top: 148px;
+    bottom: auto;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    height: 100px;
+  }
+  #chiefPanel img {
+    object-fit: cover;
+    object-position: 46% 16%;
+    opacity: .55;
+  }
+  .chiefCopy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: absolute;
+    inset: 0;
+    right: auto;
+    top: 0;
+    width: 68%;
+    padding: 8px 12px;
+    text-align: left;
+    border-right: 0;
+    border-left: 2px solid rgba(255, 196, 46, .64);
+    background: linear-gradient(90deg, rgba(3, 10, 6, .88), rgba(3, 10, 6, .58) 78%, transparent);
+  }
+  .chiefCopy span { font-size: 6.5px; margin-bottom: 5px; }
+  .chiefCopy strong { font-size: 9.5px; line-height: 1.35; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -678,6 +678,17 @@
     #holoCeiling { height: 18vh; }
     #orbStatus { bottom: 134px; }
   }
+
+  /* Phone: the voice controls are the primary interface here, so give 🎙 and 🔊
+     real thumb targets and stop iOS zooming the page when the field is focused
+     (anything under 16px triggers that zoom). */
+  @media (max-width: 480px) {
+    #bar { gap: 6px; padding: 6px; align-items: flex-end; }
+    #input { font-size: 16px; padding: 10px 6px; }
+    .barbtn { min-height: 44px; min-width: 44px; padding: 0 10px; }
+    #mic, #tts { font-size: 18px; padding: 0 8px; }
+    #send { padding: 0 12px; }
+  }
 </style>
 <link rel="stylesheet" href="core-visual.css?v=20260730-no-core-nodes" />
 </head>
@@ -1019,6 +1030,10 @@ function lsGet(key, legacyKey) {
       localStorage.setItem(CAPTURE_KEY, JSON.stringify(captures));
       const graph = staticGraph();
       return jsonResponse({ success: true, path: capture.path, node: graph.nodes.find((node) => node.path === capture.path), noteCount: graph.noteCount });
+    }
+    if (u.startsWith('/api/stt')) {
+      // Voice input needs the live core; the public snapshot has no transcriber.
+      return jsonResponse({ error: 'Cortana’s core is offline — connect CORE LINK to talk to her.' }, 503);
     }
     if (u.startsWith('/api/chat')) {
       const reply = 'Cortana’s live core isn’t reachable right now, Chief — showing the public display snapshot.';
@@ -2541,16 +2556,77 @@ async function renderChunk(text) {
   return r.blob();
 }
 
+/* ===== iOS audio unlock =====
+   Mobile Safari refuses to play any media element that has not been started
+   once from inside a real user gesture, and every `new Audio()` starts locked.
+   Rendering a fresh element per TTS chunk therefore means the phone stays
+   silent no matter how well the rest of the voice loop works. One element,
+   unlocked on Chief's first touch, then reused for every chunk, is what makes
+   the mobile side behave exactly like the laptop. */
+const SILENT_WAV = 'data:audio/wav;base64,UklGRmQBAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+let sharedAudio = null, audioUnlocked = false, audioCtx = null;
+
+function ensureAudioEl() {
+  if (!sharedAudio) {
+    sharedAudio = new Audio();
+    sharedAudio.preload = 'auto';
+    sharedAudio.setAttribute('playsinline', '');   // iOS: never hand playback to the fullscreen player
+    sharedAudio.playsInline = true;
+  }
+  return sharedAudio;
+}
+
+/* Also used to keep the mic's analyser context alive — iOS suspends both. */
+function ensureAudioContext() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function unlockAudio() {
+  ensureAudioContext();
+  if (audioUnlocked) return;
+  const a = ensureAudioEl();
+  a.src = SILENT_WAV;
+  const played = a.play();
+  const ok = () => { audioUnlocked = true; try { a.pause(); } catch (_) {} };
+  if (played && played.then) played.then(ok, () => {});   // stays locked; next gesture retries
+  else ok();
+  // speechSynthesis has the same gesture requirement — warm it in the same tick.
+  if (window.speechSynthesis) {
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (_) {}
+  }
+}
+['pointerdown', 'touchend', 'keydown'].forEach((ev) =>
+  document.addEventListener(ev, unlockAudio, { passive: true }));
+
+let currentPlaybackFinish = null;   // lets stopSpeaking() release a pending playBlob
+
 function playBlob(blob, token) {
   return new Promise((resolve, reject) => {
     if (token !== SPEECH_TOKEN) { resolve(); return; }
+    const audio = ensureAudioEl();
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
     currentAudio = audio;
-    const finish = (fn) => () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; fn(); };
+    let done = false;
+    const finish = (fn) => () => {
+      if (done) return;
+      done = true;
+      audio.onended = null; audio.onerror = null;
+      if (currentPlaybackFinish === release) currentPlaybackFinish = null;
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      fn();
+    };
+    const release = finish(resolve);   // stopSpeaking() pauses the element, which fires no 'ended'
+    currentPlaybackFinish = release;
     audio.onended = finish(resolve);
     audio.onerror = finish(() => reject(new Error('audio playback failed')));
-    audio.play().catch(finish(reject));
+    audio.src = url;
+    const played = audio.play();
+    if (played && played.catch) played.catch(finish(reject));
   });
 }
 
@@ -2558,6 +2634,7 @@ function playBlob(blob, token) {
 function stopSpeaking() {
   SPEECH_TOKEN++;
   if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
+  if (currentPlaybackFinish) { const f = currentPlaybackFinish; currentPlaybackFinish = null; f(); }
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (typeof stopLipSync === 'function') { try { stopLipSync(); } catch (_) {} }
   doneSpeaking();
@@ -2694,7 +2771,16 @@ if (coreStage) {
    so he can never hear his own voice. Click again to end the conversation. */
 const micBtn = document.getElementById('mic');
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) micBtn.style.display = 'none';
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);  // iPadOS lies about being a Mac
+const HAS_RECORDER = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+/* Safari on iOS ships webkitSpeechRecognition but ignores `continuous`, ends
+   the session after a single phrase, and refuses to restart outside a user
+   gesture — a hands-free conversation dies after one sentence. So the phone
+   records real audio and the core transcribes it (/api/stt), giving mobile the
+   same open-mic loop the laptop gets free from the browser recognizer. */
+const USE_SERVER_STT = HAS_RECORDER && (!SR || IS_IOS);
+if (!SR && !HAS_RECORDER) micBtn.style.display = 'none';
 let convoMode = false, recognition = null, micPaused = false;
 let silenceTimer = null, utteranceBuf = '', lastInterim = '';
 
@@ -2716,12 +2802,14 @@ function pauseMic() {
   micPaused = true;
   clearTimeout(silenceTimer); silenceTimer = null; utteranceBuf = ''; lastInterim = '';
   if (recognition) { try { recognition.abort(); } catch (_) {} }
+  if (USE_SERVER_STT) stopCapture();
 }
 
 function resumeMic() {
   if (!convoMode) return;
   micPaused = false;
-  startRecognition();
+  if (USE_SERVER_STT) startCapture();
+  else startRecognition();
 }
 
 function sendUtterance(text) {
@@ -2788,18 +2876,175 @@ function startRecognition() {
   try { recognition.start(); } catch (_) {}
 }
 
+/* ===== Recorder path — the phone's equivalent of continuous recognition =====
+   One microphone grant per conversation; the stream stays open afterwards so
+   Chief never has to tap again. An analyser watches the level and cuts each
+   utterance at a real silence boundary — the same place the desktop recognizer
+   would have fired its final result — then posts that clip to the core for
+   transcription. The mic is stopped outright while Cortana thinks or speaks,
+   so she can never hear herself. */
+let micStream = null, recorder = null, recorderChunks = [], vadTimer = null;
+let vadAnalyser = null, vadData = null, noiseFloor = 0.004;
+let capturing = false, sendOnStop = false;
+let sawSpeech = false, voicedMs = 0, lastVoiceAt = 0, captureStartedAt = 0;
+
+const VAD_TICK_MS = 60;
+const VAD_SILENCE_MS = 1400;        // quiet this long after speech = utterance over
+const VAD_MIN_SPEECH_MS = 250;      // a cough or a door is not a sentence
+const VAD_MAX_UTTERANCE_MS = 30000; // hard cap so one clip can't grow unbounded
+const VAD_MAX_IDLE_MS = 15000;      // nobody talking — recycle the buffer
+
+function recorderMime() {
+  const wanted = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2',
+                  'audio/mp4', 'audio/ogg;codecs=opus', 'audio/aac'];
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+  for (const type of wanted) { if (MediaRecorder.isTypeSupported(type)) return type; }
+  return '';
+}
+
+async function ensureMicStream() {
+  if (micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live')) return micStream;
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const ctx = ensureAudioContext();
+  if (ctx) {
+    vadAnalyser = ctx.createAnalyser();
+    vadAnalyser.fftSize = 1024;
+    vadAnalyser.smoothingTimeConstant = 0.4;
+    ctx.createMediaStreamSource(micStream).connect(vadAnalyser);
+    vadData = new Uint8Array(vadAnalyser.fftSize);
+    noiseFloor = 0.004;
+  }
+  return micStream;
+}
+
+function micLevel() {
+  if (!vadAnalyser || !vadData) return 0;
+  vadAnalyser.getByteTimeDomainData(vadData);
+  let sum = 0;
+  for (let i = 0; i < vadData.length; i++) { const v = (vadData[i] - 128) / 128; sum += v * v; }
+  return Math.sqrt(sum / vadData.length);
+}
+
+/* Stop the current clip. `send` decides whether it becomes a message or is
+   simply dropped and re-armed (silence, or a noise too short to be speech). */
+function endClip(send) {
+  sendOnStop = !!send;
+  clearInterval(vadTimer); vadTimer = null;
+  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (_) {} return; }
+  capturing = false;                                   // recorder already gone — re-arm directly
+  if (convoMode && !micPaused) startCapture();
+}
+
+function vadTick() {
+  const now = Date.now();
+  const level = micLevel();
+  const gate = Math.max(0.012, noiseFloor * 3.2);
+  if (level > gate) {
+    if (!sawSpeech && currentState === 'idle') setState('listening');
+    sawSpeech = true;
+    voicedMs += VAD_TICK_MS;
+    lastVoiceAt = now;
+  } else if (!sawSpeech) {
+    noiseFloor = noiseFloor * 0.94 + level * 0.06;   // learn the room only while it's quiet
+  }
+  if (sawSpeech && now - lastVoiceAt > VAD_SILENCE_MS) { endClip(voicedMs >= VAD_MIN_SPEECH_MS); return; }
+  if (sawSpeech && now - captureStartedAt > VAD_MAX_UTTERANCE_MS) { endClip(true); return; }
+  if (!sawSpeech && now - captureStartedAt > VAD_MAX_IDLE_MS) { endClip(false); }
+}
+
+function startCapture() {
+  if (capturing || !convoMode || micPaused || !USE_SERVER_STT) return;
+  capturing = true;
+  ensureMicStream().then(() => {
+    if (!convoMode || micPaused) { capturing = false; return; }
+    const mime = recorderMime();
+    try { recorder = mime ? new MediaRecorder(micStream, { mimeType: mime, audioBitsPerSecond: 32000 }) : new MediaRecorder(micStream); }
+    catch (_) { recorder = new MediaRecorder(micStream); }
+    recorderChunks = []; sendOnStop = false;
+    sawSpeech = false; voicedMs = 0; lastVoiceAt = 0; captureStartedAt = Date.now();
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recorderChunks.push(e.data); };
+    recorder.onstop = () => {
+      capturing = false;
+      const type = (recorder && recorder.mimeType) || mime || 'audio/webm';
+      const chunks = recorderChunks; recorderChunks = []; recorder = null;
+      const blob = chunks.length ? new Blob(chunks, { type }) : null;
+      if (sendOnStop && blob && blob.size > 1024) transcribe(blob);
+      else if (convoMode && !micPaused) startCapture();   // nothing worth sending — listen again
+    };
+    recorder.start();
+    micBtn.classList.add('listening');
+    if (currentState === 'idle') setState('listening');
+    clearInterval(vadTimer);
+    vadTimer = setInterval(vadTick, VAD_TICK_MS);
+  }).catch((err) => {
+    capturing = false;
+    convoMode = false;
+    micBtn.classList.remove('listening');
+    const denied = /NotAllowed|Permission|Security/i.test(err.name + ' ' + err.message);
+    addMsg(denied
+      ? '⚠ Mic access blocked — allow the microphone for this site, then tap 🎙 again.'
+      : '⚠ Mic unavailable — ' + err.message, 'system');
+    setState('idle');
+  });
+}
+
+function stopCapture() {
+  clearInterval(vadTimer); vadTimer = null;
+  sendOnStop = false;
+  // Let onstop clear `capturing` — flipping it here would let a resumeMic()
+  // that lands first build a second recorder on the same stream.
+  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (_) {} return; }
+  recorder = null; recorderChunks = [];
+  capturing = false;
+}
+
+/* Fully release the microphone — only when Chief ends the conversation, so the
+   in-conversation permission prompt happens exactly once. */
+function releaseMic() {
+  stopCapture();
+  if (micStream) { micStream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} }); micStream = null; }
+  vadAnalyser = null; vadData = null;
+}
+
+async function transcribe(blob) {
+  micPaused = true;                    // core has the floor until the answer lands
+  setState('thinking');
+  try {
+    const res = await fetch('/api/stt', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      body: blob,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('speech-to-text ' + res.status));
+    const text = String(data.text || '').trim();
+    if (!text) { if (convoMode) { setState(restState()); resumeMic(); } else setState('idle'); return; }
+    sendMessage(text);                 // → speak() → doneSpeaking() → resumeMic()
+  } catch (err) {
+    addMsg('⚠ Voice transcription failed — ' + err.message, 'system');
+    if (convoMode) { setState(restState()); resumeMic(); } else setState('idle');
+  }
+}
+
 micBtn.addEventListener('click', () => {
+  unlockAudio();          // this tap is the one gesture iOS will accept for playback
   if (convoMode) {
     convoMode = false;
     micPaused = false;
     clearTimeout(silenceTimer); silenceTimer = null; utteranceBuf = ''; lastInterim = '';
     if (recognition) { try { recognition.abort(); } catch (_) {} }
+    if (USE_SERVER_STT) releaseMic();
     stopSpeaking();
     micBtn.classList.remove('listening');
+    input.placeholder = 'Talk to Cortana…';
     setState('idle');
   } else {
     convoMode = true;
-    startRecognition();
+    input.placeholder = USE_SERVER_STT ? 'Listening — just talk…' : 'Talk to Cortana…';
+    if (USE_SERVER_STT) startCapture();
+    else startRecognition();
   }
 });
 

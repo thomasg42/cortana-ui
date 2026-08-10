@@ -1008,6 +1008,7 @@ function lsGet(key, legacyKey) {
           ['openai', 'ChatGPT', 'gpt-5.6-terra', ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6'], true, 'Automatic GPT family routing'],
           ['grok', 'Grok', 'x-ai/grok-4.5', ['x-ai/grok-4.5'], true, 'Social and real-time pulse'],
           ['perplexity', 'Perplexity', 'perplexity/sonar-pro', ['perplexity/sonar', 'perplexity/sonar-pro', 'perplexity/sonar-pro-search', 'perplexity/sonar-deep-research'], true, 'Automatic Sonar family routing'],
+          ['gemini', 'Gemini', 'google/gemini-2.5-flash', ['google/gemini-2.5-flash', '~google/gemini-pro-latest'], true, 'OpenRouter default tool lane'],
         ].map(([id, label, model, models, effort, strengths]) => ({ id, label, model, models, effort, strengths, ready: false, tools: false })),
         efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         spend: { today: 0, month: 0, cap: 3, regulation: false, messagesToday: 0 },
@@ -2351,9 +2352,10 @@ async function buildSwitchboard() {
 function renderReadyLlmStatus() {
   const providers = (switchboard && switchboard.providers) || [];
   const ready = providers.filter((p) => p.ready);
-  const pick = ready.find((p) => p.id === 'openai') || ready[0];
+  // OpenRouter Gemini is the default live brain; prefer it over optional OpenAI API.
+  const pick = ready.find((p) => p.id === 'gemini') || ready.find((p) => p.id === 'openai') || ready[0];
   if (!pick) {
-    renderLlmStatus({ vendor: '', model: 'No LLM active', brain: 'FGA Ops Brain // Obsidian ready', tools: false });
+    renderLlmStatus({ vendor: '', model: 'CORE LINK offline', brain: 'FGA Ops Brain // Obsidian ready', tools: false });
     return;
   }
   renderLlmStatus({ vendor: pick.vendor || pick.label, model: pick.model, tools: !!pick.tools });

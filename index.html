@@ -876,7 +876,7 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20260811-gate-dismissable-2"></script>
+<script src="auth-gate.js?v=20260811-ios-session-token"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -908,6 +908,13 @@ function lsGet(key, legacyKey) {
     const timer = setTimeout(() => controller.abort(), ms);
     return realFetch(url, { ...(opts || {}), signal: controller.signal })
       .finally(() => clearTimeout(timer));
+  }
+  function remoteHeaders(input) {
+    const headers = new Headers(input || {});
+    headers.set('Ngrok-Skip-Browser-Warning', '1');
+    const token = window.CortanaAuth && window.CortanaAuth.getToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return headers;
   }
   const remoteCore = String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
   const CONNECTED_KEY = 'cortana-core-connected-v1';
@@ -979,7 +986,7 @@ function lsGet(key, legacyKey) {
     connectPromise = (async () => {
       try {
         const response = await fetchWithTimeout(remoteCore + '/api/remote/status', {
-          headers: { 'Ngrok-Skip-Browser-Warning': '1' },
+          headers: remoteHeaders(),
           credentials: 'include',
         }, CORE_PROBE_MS);
         if (!response.ok) throw new Error('Core unreachable.');
@@ -1087,8 +1094,7 @@ function lsGet(key, legacyKey) {
     const connected = await ensureRemoteSession();
     if (!connected) return staticFetch(u, opts);
     try {
-      const headers = new Headers((opts && opts.headers) || {});
-      headers.set('Ngrok-Skip-Browser-Warning', '1');
+      const headers = remoteHeaders((opts && opts.headers) || {});
       const response = await realFetch(remoteCore + u, { ...(opts || {}), headers, credentials: 'include' });
       if (response.ok) setCoreState(true);
       return response;

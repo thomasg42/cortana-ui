@@ -4,6 +4,24 @@
 (function () {
   'use strict';
 
+  const SESSION_TOKEN_KEY = 'cortana-core-session-token-v1';
+  let sessionToken = '';
+  try { sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || ''; } catch (_) {}
+  function rememberSession(data) {
+    const token = data && typeof data.sessionToken === 'string' ? data.sessionToken : '';
+    if (!token) return;
+    sessionToken = token;
+    try { sessionStorage.setItem(SESSION_TOKEN_KEY, token); } catch (_) {}
+  }
+  function clearRememberedSession() {
+    sessionToken = '';
+    try { sessionStorage.removeItem(SESSION_TOKEN_KEY); } catch (_) {}
+  }
+  window.CortanaAuth = {
+    getToken: () => sessionToken,
+    clearToken: clearRememberedSession,
+  };
+
   // fetcher/base are injected per call site: on the github.io static deploy
   // this must be {fetchImpl: realFetch, base: remoteCore} to bypass the
   // window.fetch monkey-patch in index.html (which itself calls
@@ -71,9 +89,12 @@
   }
 
   async function api(path, opts) {
-    const res = await activeFetch(apiUrl(path), Object.assign({ credentials: 'include' }, opts));
+    const headers = new Headers((opts && opts.headers) || {});
+    if (sessionToken) headers.set('Authorization', `Bearer ${sessionToken}`);
+    const res = await activeFetch(apiUrl(path), Object.assign({ credentials: 'include' }, opts, { headers }));
     let data = {};
     try { data = await res.json(); } catch (_) { /* no body */ }
+    if (res.status === 401 && sessionToken) clearRememberedSession();
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
   }
@@ -225,6 +246,7 @@
         if (result.purpose === 'enroll') {
           await registerPasskey(gate, refs, result.enrollToken);
         } else {
+          rememberSession(result);
           finishAuth(gate);
         }
       } catch (err) {
@@ -243,7 +265,8 @@
       const optRes = await apiPost('/api/auth/webauthn/register/options', { enrollToken, deviceType, deviceLabel });
       const publicKey = credentialCreationOptionsFromJSON(optRes.options);
       const cred = await navigator.credentials.create({ publicKey });
-      await apiPost('/api/auth/webauthn/register/verify', { enrollToken, response: registrationResponseToJSON(cred) });
+      const result = await apiPost('/api/auth/webauthn/register/verify', { enrollToken, response: registrationResponseToJSON(cred) });
+      rememberSession(result);
       finishAuth(gate);
     } catch (err) {
       setMsg(refs, err.message || 'Could not register this device.', false);
@@ -260,7 +283,8 @@
       }
       const publicKey = credentialRequestOptionsFromJSON(optRes.options);
       const cred = await navigator.credentials.get({ publicKey });
-      await apiPost('/api/auth/webauthn/login/verify', { response: authenticationResponseToJSON(cred) });
+      const result = await apiPost('/api/auth/webauthn/login/verify', { response: authenticationResponseToJSON(cred) });
+      rememberSession(result);
       finishAuth(gate);
     } catch (err) {
       // Most common case: this device has no registered passkey yet.

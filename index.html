@@ -876,7 +876,7 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20260811-gate-dismissable"></script>
+<script src="auth-gate.js?v=20260811-gate-dismissable-2"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -967,9 +967,14 @@ function lsGet(key, legacyKey) {
     }
     return root;
   };
+  /* Declining the unlock has to stick. Every /api/ call comes back through
+     here, so without this the gate re-arms on the very next one and the
+     overlay is effectively still permanent. Tapping CORE LINK clears it. */
+  let coreLinkDeclined = false;
   async function ensureRemoteSession() {
     if (!remoteCore) return false;
     if (isConnected()) return true;
+    if (coreLinkDeclined) return false;
     if (connectPromise) return connectPromise;
     connectPromise = (async () => {
       try {
@@ -990,7 +995,7 @@ function lsGet(key, legacyKey) {
               base: remoteCore,
               // Declining leaves the core locked and drops to the snapshot,
               // rather than stranding the page under an overlay it can't close.
-              onCancel: () => resolve(false),
+              onCancel: () => { coreLinkDeclined = true; resolve(false); },
             });
           });
           if (!ok) throw new Error('Not authenticated.');
@@ -1096,6 +1101,9 @@ function lsGet(key, legacyKey) {
   if (coreButton) {
     coreButton.style.display = 'block';
     coreButton.addEventListener('click', async () => {
+      // Tapping CORE LINK is an explicit ask, so it always re-offers the
+      // unlock even if it was declined earlier in this session.
+      coreLinkDeclined = false;
       if (isConnected()) {
         setCoreState(false);
         addMsg('Private core disconnected. Public display mode remains active.', 'system');

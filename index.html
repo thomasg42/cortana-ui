@@ -876,7 +876,7 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20260730-corelink-auth"></script>
+<script src="auth-gate.js?v=20260811-gate-dismissable"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -985,7 +985,13 @@ function lsGet(key, legacyKey) {
           // live tool access. See brainstorms/cortana-biometric-auth.md.
           if (!window.initAuthGate) throw new Error('Auth gate script did not load.');
           const ok = await new Promise((resolve) => {
-            window.initAuthGate(() => resolve(true), { fetchImpl: realFetch, base: remoteCore });
+            window.initAuthGate(() => resolve(true), {
+              fetchImpl: realFetch,
+              base: remoteCore,
+              // Declining leaves the core locked and drops to the snapshot,
+              // rather than stranding the page under an overlay it can't close.
+              onCancel: () => resolve(false),
+            });
           });
           if (!ok) throw new Error('Not authenticated.');
         }

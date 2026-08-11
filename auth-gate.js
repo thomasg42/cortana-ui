@@ -146,6 +146,15 @@
     emailBtn.textContent = 'Email me a code instead';
     emailBtn.onclick = () => renderOtpRequest(gate, refs, 'login');
     refs.body.appendChild(emailBtn);
+
+    // Without this the overlay is a dead end: a phone with no CORE LINK
+    // session could not reach anything underneath it, including the
+    // Core/Galaxy toggle, even though that view is public by design.
+    const skipBtn = document.createElement('button');
+    skipBtn.className = 'link';
+    skipBtn.textContent = 'Continue without unlocking (public snapshot)';
+    skipBtn.onclick = () => dismissGate(gate);
+    refs.body.appendChild(skipBtn);
   }
 
   function renderOtpRequest(gate, refs, purpose) {
@@ -266,15 +275,28 @@
   }
 
   let onAuthedCb = null;
+  let onCancelCb = null;
   function finishAuth(gate) {
     gate.classList.add('hidden');
+    onCancelCb = null;
     if (window.CortanaDeviceManager) window.CortanaDeviceManager.refresh();
     if (onAuthedCb) { const cb = onAuthedCb; onAuthedCb = null; cb(); }
+  }
+
+  /* Dismissing the gate grants nothing — it only stops a full-screen overlay
+     from holding the public snapshot hostage. The caller treats this as "not
+     authenticated" and falls back to the sanitized static data, so the live
+     core stays just as locked as it was before the tap. */
+  function dismissGate(gate) {
+    gate.remove();
+    onAuthedCb = null;
+    if (onCancelCb) { const cb = onCancelCb; onCancelCb = null; cb(); }
   }
 
   window.initAuthGate = async function initAuthGate(onAuthed, opts) {
     activeFetch = (opts && opts.fetchImpl) || window.fetch.bind(window);
     activeBase = (opts && opts.base) || '';
+    onCancelCb = (opts && opts.onCancel) || null;
     onAuthedCb = onAuthed;
     let authenticated = false;
     try {

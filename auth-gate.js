@@ -394,7 +394,7 @@
         const logoutBtn = document.createElement('button');
         logoutBtn.textContent = 'Log out this device';
         logoutBtn.style.cssText = 'margin-top:12px;width:100%;padding:6px;background:rgba(120,231,208,.08);border:1px solid rgba(120,231,208,.3);color:inherit;border-radius:5px;cursor:pointer;font-size:11px';
-        logoutBtn.onclick = async () => { await apiPost('/api/auth/logout'); location.reload(); };
+        logoutBtn.onclick = async () => { await apiPost('/api/auth/logout'); clearRememberedSession(); location.reload(); };
         panel.appendChild(logoutBtn);
       } catch (err) {
         panel.innerHTML = `<div style="color:rgba(255,150,150,.85)">${err.message}</div>`;
@@ -412,5 +412,5 @@
     window.CortanaDeviceManager = { refresh: () => { if (panel.style.display !== 'none') refresh(); } };
   }
 
-  window.CortanaAuth = { api, apiPost };
+  window.CortanaAuth = { ...window.CortanaAuth, api, apiPost };
 })();

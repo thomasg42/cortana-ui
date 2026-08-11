@@ -477,6 +477,27 @@
     galaxy = points = linkLines = haloWorld = null;
   }
 
+  // The deployed page already carries a complete vault topology in
+  // graph-data.js, so the Galaxy view never actually needs the network to
+  // exist. Reaching for it here is what keeps the toggle honest when the live
+  // core is unreachable.
+  function staticGraphData() {
+    if (typeof window.cortanaStaticGraph === 'function') {
+      try { return window.cortanaStaticGraph(); } catch (_) {}
+    }
+    return window.CORTANA_STATIC_GRAPH || null;
+  }
+
+  // Returns true once a renderable galaxy exists. setView() calls this before
+  // deciding, so tapping Galaxy can no longer land on Core in silence.
+  function ensureGalaxyBuilt() {
+    if (galaxy) return true;
+    const data = staticGraphData();
+    if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
+    buildGalaxy(data);
+    return !!galaxy;
+  }
+
   function buildGalaxy(data) {
     disposeGalaxy();
     graphData = data;
@@ -531,7 +552,11 @@
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function setView(name, persist = true) {
-    const useGalaxy = name === 'galaxy' && galaxy;
+    // Build on demand rather than refusing. Previously a null `galaxy` made
+    // this silently resolve to Core, so on a phone whose CORE LINK probe had
+    // stalled the Galaxy button looked alive and did nothing, every tap.
+    if (name === 'galaxy') ensureGalaxyBuilt();
+    const useGalaxy = name === 'galaxy' && !!galaxy;
     window.cortanaGalaxyActive = !!useGalaxy;
     document.body.classList.toggle('galaxy-view', !!useGalaxy);
     document.querySelectorAll('.viewBtn').forEach((b) => b.classList.toggle('active', b.dataset.view === (useGalaxy ? 'galaxy' : 'core')));
@@ -1085,7 +1110,13 @@
     if (orbAtmo) orbAtmo.visible = false;
     if (vaultGraph) vaultGraph.visible = false;
     try {
-      const res = await fetch('/api/graph');
+      // Boot is never held hostage by the network. /api/graph routes through
+      // the CORE LINK shim, which can stall on a half-dead tunnel; past this
+      // budget we boot on the shipped snapshot instead of waiting forever.
+      const res = await Promise.race([
+        fetch('/api/graph'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Graph timed out')), 8000)),
+      ]);
       if (!res.ok) throw new Error('Graph unavailable');
       const data = await res.json();
       buildGalaxy(data);
@@ -1098,10 +1129,16 @@
         addMsg(`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, Chief. ${data.noteCount} notes indexed. Cortana is online and ready for the mission.`, 'cortana');
       }
     } catch (err) {
-      setView('core', false);
+      // Live core unreachable — render the Galaxy from the deployed snapshot so
+      // the toggle still works, and honour the saved view exactly as above.
+      const built = ensureGalaxyBuilt();
+      const saved = localStorage.getItem('cortana-view');
+      setView(saved === 'galaxy' && built ? 'galaxy' : 'core', false);
       window.cortanaGalaxyReady = true;
-      document.getElementById('galaxyMeta').textContent = 'Galaxy offline · core systems remain available';
-      addMsg('Core systems online, Chief. The galaxy is being temperamental; how very celestial of it.', 'cortana');
+      if (!built) document.getElementById('galaxyMeta').textContent = 'Galaxy offline · core systems remain available';
+      addMsg(built
+        ? 'Core systems online, Chief. Live core is out of reach, so the Galaxy is running on the deployed snapshot.'
+        : 'Core systems online, Chief. The galaxy is being temperamental; how very celestial of it.', 'cortana');
     }
   }
 

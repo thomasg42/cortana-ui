@@ -897,6 +897,18 @@ function lsGet(key, legacyKey) {
   if (isLocal) return;
   window.CORTANA_STATIC_MODE = true;
   const realFetch = window.fetch.bind(window);
+  /* A Cloudflare Quick Tunnel can go alive-but-dead: the hostname still
+     resolves and the socket opens, but nothing ever answers. Without a budget
+     the CORE LINK probe stays pending forever and every /api/ caller awaiting
+     it hangs with it — which is how the phone ended up with a live-looking UI
+     whose buttons did nothing. Bound it and fall through to the snapshot. */
+  const CORE_PROBE_MS = 6000;
+  function fetchWithTimeout(url, opts, ms) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return realFetch(url, { ...(opts || {}), signal: controller.signal })
+      .finally(() => clearTimeout(timer));
+  }
   const remoteCore = String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
   const CONNECTED_KEY = 'cortana-core-connected-v1';
   const CAPTURE_KEY = 'cortana-display-captures-v1';
@@ -934,6 +946,9 @@ function lsGet(key, legacyKey) {
     data.noteCount = data.nodes.length;
     return data;
   };
+  /* galaxy.js renders the Galaxy view from this same snapshot when the live
+     core is unreachable, so it must never be forced to go through fetch(). */
+  window.cortanaStaticGraph = staticGraph;
   const graphTree = (nodes) => {
     const root = [];
     for (const node of nodes) {
@@ -958,10 +973,10 @@ function lsGet(key, legacyKey) {
     if (connectPromise) return connectPromise;
     connectPromise = (async () => {
       try {
-        const response = await realFetch(remoteCore + '/api/remote/status', {
+        const response = await fetchWithTimeout(remoteCore + '/api/remote/status', {
           headers: { 'Ngrok-Skip-Browser-Warning': '1' },
           credentials: 'include',
-        });
+        }, CORE_PROBE_MS);
         if (!response.ok) throw new Error('Core unreachable.');
         const status = await response.json().catch(() => ({}));
         if (!status.authenticated) {
@@ -3314,6 +3329,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>
-<script src="galaxy.js?v=20260811-view-lock"></script>
+<script src="galaxy.js?v=20260811-galaxy-toggle-offline"></script>
 </body>
 </html>

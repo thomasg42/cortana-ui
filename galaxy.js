@@ -557,6 +557,15 @@
   }
   window.cortanaSetView = setView;
 
+  // Chief owns the view. Anything the app decides on its own — an answer's
+  // citations, an outline match, a vault refresh — may take the camera and the
+  // panels only when Galaxy is ALREADY the view on screen. On Core the graph
+  // still updates underneath (buildGalaxy leaves the new group hidden, and the
+  // source/drilldown panels are absolutely positioned over whatever is showing),
+  // but nothing switches views or steals focus off the hologram. One flag, so
+  // desktop and mobile behave identically — there is only one Core/Galaxy toggle.
+  function autoFocusAllowed() { return !!window.cortanaGalaxyActive; }
+
   function pickNode(e) {
     if (!window.cortanaGalaxyActive || !points || overUI(e)) return null;
     pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -927,6 +936,7 @@
   window.cortanaOutlineQuery = (text) => {
     const match = resolveOutline(text);
     if (!match) return false;
+    if (!autoFocusAllowed()) { highlight(match.nodeIds); return false; }
     setView('galaxy');
     highlight(match.nodeIds);
     flyToCentroid(match.nodeIds);
@@ -938,6 +948,9 @@
     if (!sources || !sources.length || !graphData) return;
     const nodes = sources.map((src) => graphData.nodes.find((n) => n.path === src.path)).filter(Boolean);
     if (!nodes.length) return;
+    // On Core: colour the cited stars in the hidden graph so they're already lit
+    // if Chief taps over, and stop there. No view change, no camera, no panel.
+    if (!autoFocusAllowed()) { highlight(nodes.map((n) => n.id)); return; }
     setView('galaxy');
     highlight(nodes.map((n) => n.id));
     // An outline Thomas just asked for outranks the answer's own citations —
@@ -981,6 +994,9 @@
     if (!res.ok) throw new Error('Galaxy refresh failed');
     const data = await res.json();
     buildGalaxy(data);
+    // buildGalaxy hands back a hidden group, so a Core-view refresh is silent —
+    // the new star is there waiting whenever Chief opens the Galaxy himself.
+    if (!autoFocusAllowed()) return;
     setView('galaxy');
     const node = data.nodes.find((n) => n.path === flyPath);
     if (node) setTimeout(() => flyToNode(node, true), 180);

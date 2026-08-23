@@ -117,7 +117,7 @@
 
     const hint = document.createElement('div');
     hint.id = 'galaxyHint';
-    hint.textContent = 'drag to orbit  ·  scroll to travel  ·  select a star to open its note';
+    hint.textContent = 'drag to orbit  ·  scroll to travel  ·  select a star to open its note  ·  Folders to zoom into the vault';
     document.body.appendChild(hint);
 
     const source = document.createElement('aside');
@@ -140,6 +140,7 @@
       source.classList.remove('open');
     });
     document.getElementById('galaxyLegend').addEventListener('click', (e) => {
+      if (e.target.closest('[data-folders]')) { openFolder(''); return; }
       const item = e.target.closest('[data-group]');
       if (item) zoomToTopic(item.dataset.group);
     });
@@ -545,7 +546,7 @@
       return acc;
     }, {});
     document.getElementById('galaxyMeta').textContent = `${data.noteCount} notes  ·  ${data.links.length} connections  ·  complete vault map  ·  private text stays local`;
-    document.getElementById('galaxyLegend').innerHTML = data.groups.map((g, i) => `<button class="legendItem" data-group="${escapeHtml(g)}"><i style="--c:${cssHex(COLORS[i % COLORS.length])}"></i>${escapeHtml(g)} <b>${counts[g] || 0}</b></button>`).join('');
+    document.getElementById('galaxyLegend').innerHTML = '<button class="legendItem legendFolders" data-folders="1"><i style="--c:#ffc42e"></i>Folders</button>' + data.groups.map((g, i) => `<button class="legendItem" data-group="${escapeHtml(g)}"><i style="--c:${cssHex(COLORS[i % COLORS.length])}"></i>${escapeHtml(g)} <b>${counts[g] || 0}</b></button>`).join('');
     closeDrilldown();
   }
 
@@ -649,14 +650,15 @@
   // view shows all its tabs, defaulting to whichever one carries the single
   // biggest sub-cluster for THIS set (most nodes under one label wins the
   // opening view — Thomas can still switch tabs manually).
-  const DIM_LABELS = { topic: 'Topic', year: 'Year', youtube: 'YouTube', business: 'Business', class: 'Class' };
-  const TOPIC_DIMS = ['year', 'youtube', 'business', 'class'];
-  const OUTLINE_DIMS = ['topic', 'year', 'youtube', 'business', 'class'];
+  const DIM_LABELS = { topic: 'Topic', folder: 'Folder', year: 'Year', youtube: 'YouTube', business: 'Business', class: 'Class' };
+  const TOPIC_DIMS = ['folder', 'year', 'youtube', 'business', 'class'];
+  const OUTLINE_DIMS = ['topic', 'folder', 'year', 'youtube', 'business', 'class'];
   const OUTLINE_NOTE_BUDGET = 300;
   let drilldownState = null; // { mode, title, group, nodeIds, tab, subValue }
 
   function subClusterKey(node, dimension) {
     if (dimension === 'topic') return node.group || 'Unclassified';
+    if (dimension === 'folder') return node.folder || 'Vault root';
     if (dimension === 'year') return node.year || 'Unclassified';
     if (dimension === 'youtube') return node.youtube ? node.youtube.channel : 'No video source';
     if (dimension === 'business') return node.business || 'Unclassified';
@@ -798,6 +800,7 @@
   }
 
   function openDrilldown(group, nodeIds) {
+    folderState = null;
     drilldownState = { mode: 'topic', title: group, group, nodeIds, tab: bestDimension(nodeIds, TOPIC_DIMS), subValue: null };
     document.querySelectorAll('.legendItem').forEach((el) => el.classList.toggle('active', el.dataset.group === group));
     document.getElementById('topicDrilldown').classList.add('open');
@@ -805,6 +808,7 @@
   }
 
   function openOutline({ title, nodeIds, dimension }) {
+    folderState = null;
     const dims = OUTLINE_DIMS;
     drilldownState = {
       mode: 'outline',
@@ -821,6 +825,7 @@
 
   function closeDrilldown() {
     drilldownState = null;
+    folderState = null;
     document.querySelectorAll('.legendItem').forEach((el) => el.classList.remove('active'));
     const panel = document.getElementById('topicDrilldown');
     if (panel) panel.classList.remove('open');
@@ -869,6 +874,8 @@
   }
 
   function handleDrilldownClick(e) {
+    // The panel is shared: when a folder is open it owns every click in here.
+    if (folderState) { handleFolderClick(e); return; }
     if (!drilldownState) return;
     if (e.target.closest('[data-action="drillClose"]')) {
       closeDrilldown();
@@ -898,6 +905,264 @@
       if (node) flyToNode(node);
     }
   }
+
+  /* ---------------------------------------------------------------------
+     Folder zoom — the other axis of the Galaxy.
+
+     The drill-down above groups notes by what they're ABOUT. This groups
+     them by where they LIVE, so "zoom into my car folders" flies the camera
+     to the Cars stars and opens that folder: its subfolders, and its files
+     with a snippet and a last-modified date.
+
+     Files are fetched one folder at a time from /api/folder. Cars alone
+     holds 17k files, so nothing is pre-loaded and nothing is held in memory
+     beyond the folder currently open.
+  --------------------------------------------------------------------- */
+  let folderState = null;      // { path, data, loading, error }
+  let folderTree = null;       // cached /api/folders payload
+  let folderTreePromise = null;
+  const folderCache = new Map();   // path -> payload, so going back up is instant
+
+  const folderLive = () => !window.CORTANA_STATIC_MODE;
+
+  function loadFolderTree() {
+    if (folderTree) return Promise.resolve(folderTree);
+    if (!folderTreePromise) {
+      folderTreePromise = Promise.race([
+        fetch('/api/folders').then((r) => (r.ok ? r.json() : Promise.reject(new Error('offline')))),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Folder index timed out')), 8000)),
+      ]).then((data) => { folderTree = data; return data; })
+        .catch((err) => { folderTreePromise = null; throw err; });
+    }
+    return folderTreePromise;
+  }
+
+  // Every folder in the tree, flattened once, for name matching and lookups.
+  function flatFolders() {
+    if (!folderTree || !folderTree.root) return [];
+    const out = [];
+    (function walk(node) {
+      if (node.path) out.push(node);
+      (node.children || []).forEach(walk);
+    })(folderTree.root);
+    return out;
+  }
+
+  const inFolder = (nodeFolder, target) => {
+    const f = String(nodeFolder || '');
+    return target ? (f === target || f.startsWith(`${target}/`)) : true;
+  };
+
+  function folderNodeIds(relPath) {
+    if (!graphData) return [];
+    return graphData.nodes.filter((n) => inFolder(n.folder, relPath)).map((n) => n.id);
+  }
+
+  const FILE_ICONS = { md: '◆', txt: '◆', pdf: '▤', docx: '▤', doc: '▤', gdoc: '▤', csv: '▦', json: '▦', canvas: '◇', base: '◇', png: '▣', jpg: '▣', jpeg: '▣', svg: '▣', html: '❯', js: '❯', m4a: '♪', mp3: '♪', mp4: '▶' };
+
+  function relativeDay(iso) {
+    if (!iso) return '';
+    const then = new Date(iso);
+    if (Number.isNaN(then.getTime())) return '';
+    const days = Math.floor((Date.now() - then.getTime()) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 30) return `${days}d ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+    return then.toISOString().slice(0, 10);
+  }
+
+  function humanSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  /* Zoom into a folder: take the camera to its stars, then open its contents.
+     The camera move and the fetch run together so the flight is never waiting
+     on the network — the panel fills in underneath it. */
+  async function openFolder(relPath, { fly = true } = {}) {
+    const target = String(relPath || '').replace(/^\/+|\/+$/g, '');
+    closeDrilldown();
+    folderState = { path: target, data: folderCache.get(target) || null, loading: true, error: null };
+    document.getElementById('topicDrilldown').classList.add('open');
+    renderFolderView();
+
+    if (fly) {
+      const ids = folderNodeIds(target);
+      if (ids.length) { setView('galaxy'); highlight(ids); flyToCentroid(ids); }
+    }
+
+    if (!folderLive()) {
+      folderState.loading = false;
+      folderState.error = 'Folder contents live on the private FGA-Brain core. Connect it to browse files here.';
+      renderFolderView();
+      return;
+    }
+    try {
+      const res = await fetch(`/api/folder?path=${encodeURIComponent(target)}`);
+      // A core running an older build has no /api/folder. Say that plainly
+      // rather than pouring the raw 404 body into the panel — during a deploy
+      // the frontend can land before the core restarts.
+      if (res.status === 404) throw new Error('This core is running an older build without folder access. Restart the FGA-Brain core to browse folders.');
+      if (!res.ok) throw new Error(String(await res.text() || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || 'Folder unavailable');
+      const data = await res.json();
+      folderCache.set(target, data);
+      // A slower fetch must never overwrite a folder Chief has already moved on from.
+      if (!folderState || folderState.path !== target) return;
+      folderState.data = data;
+    } catch (err) {
+      if (!folderState || folderState.path !== target) return;
+      folderState.error = err.message || 'Folder unavailable';
+    } finally {
+      if (folderState && folderState.path === target) { folderState.loading = false; renderFolderView(); }
+    }
+  }
+
+  function closeFolderView() {
+    folderState = null;
+    const panel = document.getElementById('topicDrilldown');
+    if (panel) panel.classList.remove('open');
+  }
+
+  function breadcrumb(relPath) {
+    const parts = String(relPath || '').split('/').filter(Boolean);
+    const crumbs = [{ label: 'FGA-Brain', path: '' }];
+    parts.forEach((part, i) => crumbs.push({ label: part, path: parts.slice(0, i + 1).join('/') }));
+    return crumbs.map((c, i) => `<button class="fvCrumb${i === crumbs.length - 1 ? ' current' : ''}" data-folder="${escapeHtml(c.path)}">${escapeHtml(c.label)}</button>`)
+      .join('<span class="fvCrumbSep">/</span>');
+  }
+
+  function renderFolderView() {
+    if (!folderState) return;
+    const panel = document.getElementById('topicDrilldown');
+    const { path: relPath, data, loading, error } = folderState;
+    const title = relPath ? relPath.split('/').pop() : 'FGA-Brain';
+
+    let body = '';
+    if (error) body = `<div class="fvEmpty">${escapeHtml(error)}</div>`;
+    else if (!data) body = `<div class="fvEmpty">Reading ${escapeHtml(title)}…</div>`;
+    else {
+      const folders = data.folders.length ? `<div class="fvSection">
+        <div class="fvSectionHead">Folders <b>${data.folders.length}</b></div>
+        <div class="fvFolders">${data.folders.map((f) => `
+          <button class="fvFolder" data-folder="${escapeHtml(f.path)}">
+            <span class="fvFolderName">${escapeHtml(f.name)}</span>
+            <span class="fvFolderMeta">${f.totalFiles.toLocaleString()} file${f.totalFiles === 1 ? '' : 's'}${f.folders ? ` · ${f.folders} folder${f.folders === 1 ? '' : 's'}` : ''}${f.modified ? ` · ${relativeDay(f.modified)}` : ''}</span>
+          </button>`).join('')}</div>
+      </div>` : '';
+
+      const files = data.files.length ? `<div class="fvSection">
+        <div class="fvSectionHead">Files <b>${data.totalFiles.toLocaleString()}</b>${data.truncated ? `<span class="fvCap">newest ${data.files.length} shown</span>` : ''}</div>
+        <div class="fvFiles">${data.files.map((f) => `
+          <button class="fvFile${f.readable ? '' : ' opaque'}" data-file="${escapeHtml(f.path)}" ${f.readable ? '' : 'disabled'}>
+            <span class="fvIcon">${FILE_ICONS[f.ext] || '·'}</span>
+            <span class="fvBody">
+              <span class="fvName">${escapeHtml(f.name)}</span>
+              ${f.snippet ? `<span class="fvSnippet">${escapeHtml(f.snippet)}</span>` : ''}
+              <span class="fvMeta">${escapeHtml(f.ext || 'file')} · ${humanSize(f.size)} · ${relativeDay(f.modified)}</span>
+            </span>
+          </button>`).join('')}</div>
+      </div>` : '';
+
+      body = folders + files || '<div class="fvEmpty">This folder is empty.</div>';
+    }
+
+    panel.innerHTML = `
+      <div class="drillHead">
+        <button class="drillBack" data-action="folderClose">◄ Full galaxy</button>
+        <div class="drillTitle">${escapeHtml(title)}${data ? ` <b>${data.subtreeFiles.toLocaleString()}</b>` : ''}</div>
+      </div>
+      <div class="fvCrumbs">${breadcrumb(relPath)}</div>
+      <div class="drillOutline fvScroll${loading ? ' loading' : ''}">${body}</div>
+    `;
+    panel.querySelector('.fvScroll').scrollTop = 0;
+  }
+
+  /* Folder clicks ride the panel's single existing delegated listener — see
+     handleDrilldownClick, which routes here first whenever a folder is open. */
+  function handleFolderClick(e) {
+    if (e.target.closest('[data-action="folderClose"]')) { closeFolderView(); goHome(); return true; }
+    const crumb = e.target.closest('[data-folder]');
+    if (crumb) { openFolder(crumb.dataset.folder); return true; }
+    const file = e.target.closest('[data-file]');
+    if (file) {
+      const relPath = file.dataset.file;
+      const node = graphData && graphData.nodes.find((n) => n.path === relPath);
+      if (node) flyToNode(node);
+      else if (typeof openFile === 'function') openFile(relPath);
+      return true;
+    }
+    return false;
+  }
+
+  /* Spoken/typed folder asks — "zoom into Cars", "show me my car folders",
+     "open the BMW E30 folder". Matched locally against the real folder tree,
+     never a model call, and always more specific than a topic outline, so
+     this is tried first. */
+  const FOLDER_CUE = /\b(folder|folders|directory|directories|zoom\s+(?:in(?:to)?|to)|open\s+up|drill\s+into|inside)\b/i;
+  const FOLDER_STOPWORDS = new Set([
+    'folder', 'folders', 'directory', 'directories', 'zoom', 'into', 'in', 'to', 'open', 'up',
+    'drill', 'inside', 'show', 'me', 'my', 'the', 'all', 'lets', 'let', 'go', 'take', 'us',
+    'pull', 'give', 'what', 'whats', 'and', 'everything', 'stuff', 'cortana', 'chief', 'that',
+  ]);
+
+  function resolveFolderZoom(text) {
+    const q = String(text || '').toLowerCase();
+    if (!FOLDER_CUE.test(q) || !folderTree) return null;
+    const terms = q.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/)
+      .filter((w) => w.length > 2 && !FOLDER_STOPWORDS.has(w));
+    if (!terms.length) return null;
+
+    // Score every folder by how much of its name the ask actually contains.
+    // Depth breaks ties toward the top-level folder, so "cars" opens Cars/
+    // rather than some nested folder that happens to say "car".
+    let best = null;
+    for (const folder of flatFolders()) {
+      const name = folder.name.toLowerCase();
+      const bare = name.replace(/[^a-z0-9]+/g, ' ').trim();
+      // Singularise BOTH sides. "show me my car folders" has to reach the
+      // folder actually named "Cars"; matching only the spoken word against
+      // the literal folder name sent it to "Car Detailing" instead.
+      const stem = (w) => (w.length > 3 ? w.replace(/s$/, '') : w);
+      const bareStem = stem(bare);
+      const words = bare.split(' ');
+      let score = 0;
+      if (q.includes(bare) && bare.length > 2) score += bare.length * 2;
+      for (const term of terms) {
+        const singular = stem(term);
+        if (bareStem === singular) score += 40;
+        else if (words.includes(term) || words.map(stem).includes(singular)) score += 18;
+        else if (singular.length > 3 && bare.includes(singular)) score += 8;
+      }
+      if (!score) continue;
+      score -= folder.path.split('/').length * 3;
+      if (!best || score > best.score) best = { score, folder };
+    }
+    return best && best.score >= 12 ? best.folder.path : null;
+  }
+
+  // Ask for the folder index in the background so the first spoken folder
+  // request resolves instantly instead of waiting on a 17k-file walk.
+  function primeFolderIndex() {
+    if (!folderLive()) return;
+    loadFolderTree().catch(() => { /* offline core — folder zoom stays unavailable */ });
+  }
+
+  // Test seam: the folder view's real functions, so tests/folder-galaxy.test.mjs
+  // drives the shipped code (including the shared panel's click routing)
+  // rather than a copy of it.
+  window.cortanaGalaxyInternals = { handleDrilldownClick, openFolder, resolveFolderZoom, loadFolderTree };
+
+  window.cortanaOpenFolder = (relPath) => openFolder(relPath);
+  window.cortanaFolderQuery = (text) => {
+    const match = resolveFolderZoom(text);
+    if (match === null) return false;
+    if (!autoFocusAllowed()) { highlight(folderNodeIds(match)); return false; }
+    openFolder(match);
+    return true;
+  };
 
   /* Asking for a kind of thing in conversation ("give me all the YouTube
      videos", "show me every Kraken note") outlines that whole set in the
@@ -959,6 +1224,7 @@
   }
 
   window.cortanaOutlineQuery = (text) => {
+    if (window.cortanaFolderQuery(text)) return true;
     const match = resolveOutline(text);
     if (!match) return false;
     if (!autoFocusAllowed()) { highlight(match.nodeIds); return false; }
@@ -1120,6 +1386,7 @@
       if (!res.ok) throw new Error('Graph unavailable');
       const data = await res.json();
       buildGalaxy(data);
+      primeFolderIndex();
       // Core is the hologram front door on Pages; Galaxy stays one tap away.
       const saved = localStorage.getItem('cortana-view');
       setView(saved === 'galaxy' ? 'galaxy' : 'core', false);

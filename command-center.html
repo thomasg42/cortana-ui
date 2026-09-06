@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FGA Command Center</title>
+<!--
+  STRUCTURE ONLY — the styling here is deliberately minimal and disposable.
+  Codex owns the visual pass. Two contracts to preserve when restyling:
+    1. Every card is <section class="card" data-section="NAME"> where NAME is
+       one of the API's section keys. render(NAME) writes into its .card-body.
+    2. All data comes from GET /api/command-center. Never hardcode a number,
+       a client, a URL, or a dollar figure into this file — edit
+       FGA-AIOS/command-center/registry.json instead.
+-->
+<style>
+  :root { --ink:#111; --muted:#666; --line:#ddd; --bg:#fafafa; --ok:#0a7d34; --warn:#a86500; --bad:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui, -apple-system, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); background:#fff; position:sticky; top:0; z-index:5;
+           display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; }
+  .meta { color:var(--muted); font-size:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:12px; padding:12px; align-items:start; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:6px; }
+  .card > h2 { font-size:13px; margin:0; padding:8px 10px; border-bottom:1px solid var(--line);
+               display:flex; justify-content:space-between; align-items:center; gap:8px; text-transform:uppercase; letter-spacing:.04em; }
+  .card-body { padding:10px; }
+  .card[data-status="error"] > h2 { color:var(--bad); }
+  .card[data-status="degraded"] > h2, .card[data-status="unconfigured"] > h2 { color:var(--warn); }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid #eee; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
+  ul { margin:0; padding-left:18px; }
+  li { margin:2px 0; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px solid #f0f0f0; }
+  .big { font-size:24px; font-weight:600; }
+  .muted { color:var(--muted); }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .pill { display:inline-block; font-size:11px; padding:1px 6px; border:1px solid var(--line); border-radius:10px; }
+  .alerts { padding:0 12px; }
+  .alert { padding:6px 10px; margin-top:6px; border-left:3px solid var(--muted); background:#fff; font-size:13px; }
+  .alert.critical { border-color:var(--bad); } .alert.warn { border-color:var(--warn); } .alert.info { border-color:var(--muted); }
+  button { font:inherit; font-size:12px; padding:3px 8px; cursor:pointer; }
+  input[type=number] { width:60px; font:inherit; padding:2px 4px; }
+  a { color:inherit; }
+  .empty { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FGA Command Center</h1>
+  <span class="meta" id="stamp">loading…</span>
+  <span class="meta" id="connection"></span>
+  <button id="refreshAll" type="button">Refresh all</button>
+</header>
+
+<div class="alerts" id="alerts"></div>
+
+<main class="grid" id="grid"></main>
+
+<script src="remote-config.js"></script>
+<script src="auth-gate.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // Card order = reading order: what is on fire, then what makes money, then
+  // what has to be maintained.
+  var CARDS = [
+    ['pulse',       'Today'],
+    ['outreach',    'Reach Out'],
+    ['money',       'Money'],
+    ['inbox',       'Inbox'],
+    ['calendar',    'Calendar'],
+    ['clients',     'Clients & Businesses'],
+    ['pages',       'Live Pages'],
+    ['projects',    'Projects'],
+    ['automations', 'Automations'],
+    ['marketing',   'Marketing'],
+    ['tasks',       'Task Board'],
+    ['journal',     'Activity Log']
+  ];
+
+  // Served by the local core → same origin. Served from GitHub Pages → the
+  // CORE LINK tunnel, same resolution index.html uses.
+  var isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  var BASE = isLocal ? '' : String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
+  var realFetch = window.fetch.bind(window);
+
+  function headers() {
+    var h = new Headers();
+    if (!isLocal) h.set('Ngrok-Skip-Browser-Warning', '1');
+    var token = window.CortanaAuth && window.CortanaAuth.getToken && window.CortanaAuth.getToken();
+    if (token) h.set('Authorization', 'Bearer ' + token);
+    return h;
+  }
+
+  function api(path, options) {
+    var opts = options || {};
+    return realFetch(BASE + path, {
+      method: opts.method || 'GET',
+      headers: headers(),
+      credentials: 'include',
+      body: opts.body
+    }).then(function (res) {
+      if (res.status === 401) { var e = new Error('Not authenticated. Connect CORE LINK.'); e.authRequired = true; throw e; }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = String(text);
+    return n;
+  }
+  function esc(v) { return String(v == null ? '' : v); }
+  function money(v) { return v == null ? '—' : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
+  function when(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d)) return esc(iso);
+    var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    return days === 0 ? 'today' : days === 1 ? 'yesterday' : days + 'd ago';
+  }
+  function rows(parent, pairs) {
+    pairs.forEach(function (p) {
+      var r = el('div', 'row');
+      r.appendChild(el('span', 'muted', p[0]));
+      var v = el('span', p[2] || '', p[1]);
+      r.appendChild(v);
+      parent.appendChild(r);
+    });
+  }
+  function table(parent, cols, data, cellFns) {
+    if (!data || !data.length) { parent.appendChild(el('p', 'empty', 'Nothing here.')); return; }
+    var t = el('table'), thead = el('thead'), tr = el('tr');
+    cols.forEach(function (c) { tr.appendChild(el('th', null, c)); });
+    thead.appendChild(tr); t.appendChild(thead);
+    var tb = el('tbody');
+    data.forEach(function (row) {
+      var r = el('tr');
+      cellFns.forEach(function (fn) {
+        var td = el('td');
+        var out = fn(row);
+        if (out instanceof Node) td.appendChild(out); else td.textContent = esc(out);
+        r.appendChild(td);
+      });
+      tb.appendChild(r);
+    });
+    t.appendChild(tb); parent.appendChild(t);
+  }
+  function link(text, href) {
+    if (!href) return esc(text);
+    var a = el('a', null, text);
+    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    return a;
+  }
+
+  // ---- per-section renderers. Each gets (body, data) and owns only its card.
+  var RENDER = {
+    pulse: function (b, d) {
+      rows(b, [
+        ['Date', d.weekday + ' ' + d.date],
+        ['Now', d.current_block ? d.current_block.block : '—', d.in_revenue_block ? 'bad' : ''],
+        ['Next', d.next_block ? d.next_block.time + ' ' + d.next_block.block : '—']
+      ]);
+      if (d.in_revenue_block) {
+        b.appendChild(el('p', 'bad', 'REVENUE BLOCK is live (' + d.revenue_block.start + '–' + d.revenue_block.end + '). Nothing touches this.'));
+      }
+      b.appendChild(el('p', 'muted', 'Schedule source: ' + esc(d.schedule_source)));
+    },
+
+    outreach: function (b, d) {
+      var t = d.today;
+      var callWrap = el('div');
+      callWrap.appendChild(el('span', 'big' + (t.calls >= t.call_target ? ' ok' : ' bad'), t.calls + ' / ' + t.call_target));
+      callWrap.appendChild(el('span', 'muted', '  calls today'));
+      b.appendChild(callWrap);
+      var mailWrap = el('div');
+      mailWrap.appendChild(el('span', 'big' + (t.emails >= t.email_target ? ' ok' : ''), t.emails + ' / ' + t.email_target));
+      mailWrap.appendChild(el('span', 'muted', '  emails today'));
+      b.appendChild(mailWrap);
+
+      if (d.coverage_warning) b.appendChild(el('p', 'warn', d.coverage_warning));
+
+      var form = el('div');
+      form.style.cssText = 'margin:8px 0; display:flex; gap:6px; align-items:center; flex-wrap:wrap';
+      var calls = el('input'); calls.type = 'number'; calls.value = '1'; calls.min = '0'; calls.id = 'logCalls';
+      var mails = el('input'); mails.type = 'number'; mails.value = '0'; mails.min = '0'; mails.id = 'logEmails';
+      var btn = el('button', null, 'Log');
+      form.appendChild(el('span', 'muted', 'calls')); form.appendChild(calls);
+      form.appendChild(el('span', 'muted', 'emails')); form.appendChild(mails);
+      form.appendChild(btn);
+      var status = el('span', 'muted', '');
+      form.appendChild(status);
+      btn.onclick = function () {
+        btn.disabled = true; status.textContent = 'saving…';
+        api('/api/command-center/outreach', {
+          method: 'POST',
+          body: JSON.stringify({ calls: Number(calls.value) || 0, emails: Number(mails.value) || 0 })
+        }).then(function () { return refresh(['outreach']); })
+          .catch(function (e) { status.textContent = e.message; })
+          .then(function () { btn.disabled = false; });
+      };
+      b.appendChild(form);
+
+      table(b, ['Day', 'Calls', 'Emails'], d.last_7_days,
+        [function (r) { return r.date.slice(5); },
+         function (r) { return r.logged ? r.calls : '—'; },
+         function (r) { return r.logged ? r.emails : '—'; }]);
+    },
+
+    money: function (b, d) {
+      var m = d.mrr || {};
+      b.appendChild(el('div', 'big', money(m.confirmed_usd) + ' MRR'));
+      rows(b, [
+        ['Goal', money(m.goal_usd)],
+        ['Gap', money(m.gap_usd), 'bad'],
+        ['API spend today', d.api_spend ? money(d.api_spend.today) : '—'],
+        ['API spend month', d.api_spend ? money(d.api_spend.month) : '—']
+      ]);
+      if (m.warning) b.appendChild(el('p', 'warn', m.warning));
+      if ((m.confirmed_sources || []).length) {
+        b.appendChild(el('p', 'muted', 'Confirmed: ' + m.confirmed_sources.map(function (s) { return s.name + ' ' + money(s.usd); }).join(', ')));
+      }
+      if ((m.unconfirmed || []).length) {
+        b.appendChild(el('p', 'muted', 'UNCONFIRMED: ' + m.unconfirmed.map(function (s) { return s.name; }).join(', ')));
+      }
+    },
+
+    inbox: function (b, d) {
+      (d.buckets || []).forEach(function (bucket) {
+        var h = el('div', 'row');
+        h.appendChild(el('strong', bucket.urgency === 'high' ? 'bad' : '', bucket.label));
+        h.appendChild(el('span', null, bucket.status === 'ok'
+          ? (bucket.count + (bucket.count_is_estimate ? '+' : ''))
+          : 'error'));
+        b.appendChild(h);
+        if (bucket.status !== 'ok') { b.appendChild(el('p', 'muted', esc(bucket.error))); return; }
+        var ul = el('ul');
+        (bucket.messages || []).forEach(function (m) {
+          var li = el('li');
+          li.appendChild(link(m.subject || '(no subject)', m.url));
+          li.appendChild(el('span', 'muted', ' — ' + esc((m.from || '').replace(/<.*>/, '').trim())));
+          ul.appendChild(li);
+        });
+        if (!(bucket.messages || []).length) ul.appendChild(el('li', 'empty', 'clear'));
+        b.appendChild(ul);
+      });
+    },
+
+    calendar: function (b, d) {
+      b.appendChild(el('strong', null, 'Today'));
+      table(b, ['Time', 'Event'], d.today,
+        [function (e) { return e.time; }, function (e) { return link(e.summary, e.url); }]);
+      b.appendChild(el('strong', null, 'Next 7 days'));
+      table(b, ['Day', 'Time', 'Event'], d.upcoming,
+        [function (e) { return e.day.slice(5); }, function (e) { return e.time; }, function (e) { return link(e.summary, e.url); }]);
+    },
+
+    clients: function (b, d) {
+      [['Clients', d.clients], ['FGA-owned', d.owned], ['Prospects', d.prospects]].forEach(function (g) {
+        if (!(g[1] || []).length) return;
+        b.appendChild(el('strong', null, g[0]));
+        table(b, ['Name', 'Status', 'MRR', 'Next action'], g[1], [
+          function (c) { return c.name; },
+          function (c) {
+            var s = el('span', 'pill', c.status);
+            if (c.vault_missing) s.classList.add('bad');
+            return s;
+          },
+          function (c) { return c.revenue_status === 'CONFIRMED' ? money(c.monthly_revenue_usd) : 'UNCONF'; },
+          function (c) {
+            var wrap = el('div');
+            wrap.appendChild(el('span', null, c.next_action || '—'));
+            var notes = [];
+            if (c.three_ps !== 'present') {
+              // Name the specific P that still needs a human — "unverified" on
+              // its own is not actionable.
+              var which = (c.three_ps_unverified || []).join('/');
+              notes.push('three-Ps ' + c.three_ps + (which ? ' (' + which + ')' : ''));
+            }
+            if (c.vault_missing) notes.push('vault folder missing');
+            if (c.last_touched) notes.push('touched ' + when(c.last_touched));
+            if (notes.length) wrap.appendChild(el('div', 'muted', notes.join(' · ')));
+            return wrap;
+          }
+        ]);
+      });
+    },
+
+    pages: function (b, d) {
+      var all = (d.pages || []).concat(d.backends || []);
+      table(b, ['', 'Page', 'Code', 'ms'], all, [
+        function (p) { return el('span', p.ok ? 'ok' : 'bad', p.ok ? 'UP' : 'DOWN'); },
+        function (p) { return link(p.label, p.url); },
+        function (p) { return p.http_status == null ? (p.error || '—') : p.http_status; },
+        function (p) { return p.ms; }
+      ]);
+      b.appendChild(el('p', 'muted', 'Checked ' + when(d.checked_at)));
+    },
+
+    projects: function (b, d) {
+      if ((d.waiting_on_thomas || []).length) {
+        b.appendChild(el('strong', 'bad', 'Waiting on you'));
+        var ul = el('ul');
+        d.waiting_on_thomas.forEach(function (p) {
+          var li = el('li');
+          li.appendChild(el('span', null, p.title));
+          li.appendChild(el('div', 'muted', p.next_action || ''));
+          ul.appendChild(li);
+        });
+        b.appendChild(ul);
+      }
+      b.appendChild(el('strong', null, 'Open'));
+      table(b, ['Project', 'Lane', 'Next action'], d.open, [
+        function (p) { return p.title; },
+        function (p) { return el('span', 'pill', p.lane || '—'); },
+        function (p) { return p.next_action || '—'; }
+      ]);
+    },
+
+    automations: function (b, d) {
+      if (d.hint) b.appendChild(el('p', 'bad', d.hint));
+      rows(b, [
+        ['Workflows', (d.counts && d.counts.total) != null ? d.counts.total : '—'],
+        ['Active', (d.counts && d.counts.active) != null ? d.counts.active : '—'],
+        ['Recent failures', (d.recent_failures || []).length, (d.recent_failures || []).length ? 'bad' : 'ok']
+      ]);
+      if ((d.recent_failures || []).length) {
+        b.appendChild(el('strong', 'bad', 'Failed executions'));
+        table(b, ['Workflow', 'When'], d.recent_failures.slice(0, 6),
+          [function (f) { return f.workflow_name; }, function (f) { return when(f.started_at); }]);
+      }
+      table(b, ['Workflow', 'State'], (d.workflows || []).slice(0, 12), [
+        function (w) { return w.name; },
+        function (w) { return el('span', w.active ? 'ok' : 'muted', w.active ? 'active' : 'off'); }
+      ]);
+    },
+
+    marketing: function (b, d) {
+      var t = d.totals || {};
+      rows(b, [
+        ['Logged runs', t.runs],
+        ['Recorded spend', money(t.usd)],
+        ['Runs with no cost recorded', t.usd_unrecorded, t.usd_unrecorded ? 'warn' : 'ok']
+      ]);
+      var status = d.by_status || {};
+      b.appendChild(el('p', 'muted', Object.keys(status).map(function (k) { return k + ': ' + status[k]; }).join(' · ')));
+      table(b, ['Date', 'Business', 'Campaign', 'Status'], d.recent, [
+        function (r) { return r.date; }, function (r) { return r.business; },
+        function (r) { return r.campaign; }, function (r) { return el('span', 'pill', r.status || '—'); }
+      ]);
+    },
+
+    tasks: function (b, d) {
+      var c = d.counts || {};
+      b.appendChild(el('p', 'muted', Object.keys(c).map(function (k) { return k + ': ' + c[k]; }).join(' · ')));
+      [['In progress', d.in_progress], ['To do', d.todo]].forEach(function (g) {
+        b.appendChild(el('strong', null, g[0]));
+        var ul = el('ul');
+        (g[1] || []).forEach(function (t) { ul.appendChild(el('li', null, t.title || JSON.stringify(t))); });
+        if (!(g[1] || []).length) ul.appendChild(el('li', 'empty', 'empty'));
+        b.appendChild(ul);
+      });
+    },
+
+    journal: function (b, d) {
+      rows(b, [
+        ["Today's log", d.today.exists ? d.today.chars + ' chars' : 'missing', d.today.looks_empty ? 'bad' : 'ok'],
+        ['Yesterday', d.yesterday.exists ? 'logged' : 'missing', d.yesterday.exists ? 'ok' : 'warn'],
+        ['Last logged day', d.latest_logged || '—']
+      ]);
+      if (d.today.looks_empty) {
+        b.appendChild(el('p', 'bad', 'No real activity logged for ' + d.today.date + ' yet.'));
+      }
+      b.appendChild(el('p', 'muted', (d.recent || []).map(function (r) { return r.date.slice(5); }).join(' · ')));
+    }
+  };
+
+  // ---- shell -------------------------------------------------------------
+  function buildShell() {
+    var grid = $('grid');
+    CARDS.forEach(function (c) {
+      var key = c[0];
+      var card = el('section', 'card');
+      card.dataset.section = key;
+      var h = el('h2');
+      h.appendChild(el('span', null, c[1]));
+      var btn = el('button', null, '↻');
+      btn.title = 'Refresh ' + c[1];
+      btn.onclick = function () { refresh([key]); };
+      h.appendChild(btn);
+      card.appendChild(h);
+      var body = el('div', 'card-body');
+      body.appendChild(el('p', 'muted', 'loading…'));
+      card.appendChild(body);
+      grid.appendChild(card);
+    });
+  }
+
+  function paint(key, data) {
+    var card = document.querySelector('.card[data-section="' + key + '"]');
+    if (!card) return;
+    var body = card.querySelector('.card-body');
+    body.textContent = '';
+    card.dataset.status = data.status || 'unknown';
+    if (data.status === 'error' || data.status === 'unconfigured') {
+      body.appendChild(el('p', 'bad', esc(data.error || 'unavailable')));
+      // A failed live source still shows whatever it did manage to collect.
+      if (!RENDER[key]) return;
+    }
+    try {
+      RENDER[key](body, data);
+    } catch (err) {
+      body.appendChild(el('p', 'bad', 'render error: ' + err.message));
+    }
+    if (data.cached) body.appendChild(el('p', 'muted', 'cached ' + when(data.cached_at)));
+  }
+
+  function paintAlerts(alerts) {
+    var box = $('alerts');
+    box.textContent = '';
+    (alerts || []).forEach(function (a) {
+      box.appendChild(el('div', 'alert ' + a.level, '[' + a.source + '] ' + a.message));
+    });
+  }
+
+  function refresh(sections) {
+    var q = '/api/command-center?refresh=1' + (sections ? '&sections=' + sections.join(',') : '');
+    $('stamp').textContent = 'refreshing…';
+    return api(q).then(function (payload) {
+      Object.keys(payload.sections || {}).forEach(function (k) { paint(k, payload.sections[k]); });
+      if (!sections) paintAlerts(payload.alerts);
+      $('stamp').textContent = new Date(payload.generated_at).toLocaleTimeString() + ' · ' + payload.build_ms + 'ms';
+      if (payload.registry_error) $('stamp').textContent += ' · REGISTRY ERROR';
+      return payload;
+    }).catch(function (err) {
+      $('stamp').textContent = err.message;
+      if (err.authRequired) $('connection').textContent = 'Not authenticated — connect CORE LINK.';
+      throw err;
+    });
+  }
+
+  function boot() {
+    $('connection').textContent = isLocal ? 'local core' : 'CORE LINK ' + BASE;
+    $('refreshAll').onclick = function () { refresh(null).catch(function () {}); };
+    refresh(null).catch(function () {});
+    // Live cards go stale fast; file-backed ones are cheap. One poll covers both.
+    setInterval(function () { refresh(null).catch(function () {}); }, 5 * 60 * 1000);
+  }
+
+  buildShell();
+  // The session gate on /api/* applies on localhost too — there is no local
+  // exemption in server.js — so the auth gate has to run in both cases, the
+  // same way index.html does it. On localhost its defaults (window.fetch +
+  // relative paths) are correct; on the github.io deploy it needs the real
+  // fetch and the tunnel base.
+  if (window.initAuthGate) {
+    window.initAuthGate(boot, isLocal ? {} : { fetchImpl: realFetch, base: BASE });
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>

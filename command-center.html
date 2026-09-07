@@ -21,6 +21,19 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
 @media(max-width:1050px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card[data-section=projects]{grid-column:span 2}}
 @media(max-width:640px){html{scroll-padding-top:150px}header{gap:8px;padding:12px 16px}header .meta{font-size:10px}#connection{margin-left:0;width:100%}.hero{padding:25px 16px 15px}.hero p{font-size:12px}.orbit{display:none}.nav{padding:0 16px 18px}.grid{display:block;padding:0 16px 30px}.card{margin-bottom:16px}.project-list{grid-template-columns:1fr}.card-body{padding:14px}.goal-form{grid-template-columns:1fr}.metrics{gap:15px}.ring{width:78px;height:78px}.ring span{font-size:18px}.metric{min-width:160px}.alerts{padding:0 16px}th,td{font-size:11px;padding:6px 3px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+/* Tactical overview: summaries first; the working controls stay instant. */
+:root{--bg:#070b0c;--ink:#e3ebe4;--muted:#99aaa1;--line:#34453b;--ok:#ceeb8b;--cyan:#81cfc8;--warn:#e9bc73;--bad:#ff9e91}
+body{background:radial-gradient(ellipse at 90% 0,#223028 0,transparent 50%),#080d0e}body:before{background-size:36px 36px;background-image:linear-gradient(#d8ed9205 1px,transparent 1px),linear-gradient(90deg,#d8ed9205 1px,transparent 1px)}
+header{height:72px;padding:12px 28px;flex-wrap:nowrap;background:#0a1011f5}h1{font-size:12px;letter-spacing:.16em}header #stamp{max-width:310px}header a{font-size:11px;text-decoration:none;white-space:nowrap}header #connection{font:10px monospace;letter-spacing:.05em;color:var(--cyan)}
+.command-shell{display:grid;grid-template-columns:205px minmax(0,1fr);max-width:1800px;margin:auto}.sidebar{border-right:1px solid var(--line);padding:30px 18px;position:sticky;top:72px;height:calc(100vh - 72px);display:flex;flex-direction:column;background:#0a1110aa}.sidebar-label{color:#84988a;font:9px monospace;letter-spacing:.18em;margin:0 12px 19px}.nav{display:flex;flex-direction:column;padding:0;gap:4px;margin:0;max-width:none}.nav a{display:flex;align-items:center;gap:11px;font-size:11px;color:var(--muted);border:1px solid transparent;border-radius:2px;padding:11px 10px}.nav a .nav-number{flex-shrink:0;white-space:nowrap;color:#708276;font:10px monospace}.nav a .nav-arrow{margin-left:auto;color:#a6b98c}.nav a:hover,.nav a[aria-current=true]{color:var(--ok);background:#b8d7730a;border-color:#8da75d44}.sidebar-foot{margin-top:auto;padding:24px 10px 0;font:9px/1.8 monospace;color:#859687;letter-spacing:.07em}.sidebar-foot strong{color:var(--ok);font-weight:400}.command-main{min-width:0;padding:0 30px 50px}.hero{padding:30px 0 21px;display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid var(--line)}.hero h2{font-size:clamp(23px,2.7vw,36px);font-weight:500;letter-spacing:-.045em;margin:8px 0 0;line-height:1.2}.hero .eyebrow{color:var(--muted);font:9px monospace;letter-spacing:.19em}.hero p{font-size:11px;margin:8px 0 0;max-width:520px}.mission-insignia{color:var(--ok);border:1px solid #6c8154;outline:5px solid #9dbb6408;font:12px monospace;width:54px;height:54px;display:grid;place-items:center;clip-path:polygon(15% 0,100% 0,100% 85%,85% 100%,0 100%,0 15%)}
+.overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:21px 0}.overview-tile{display:block;position:relative;text-decoration:none;border:1px solid var(--line);padding:17px 15px;background:linear-gradient(120deg,#19251d99,#0c1515);border-radius:3px;min-width:0;color:var(--ink);border-top-color:#738260}.overview-tile:hover{border-color:var(--ok)}.overview-label{color:var(--muted);font:9px monospace;letter-spacing:.11em;text-transform:uppercase}.overview-value{font:500 clamp(22px,2.6vw,34px)/1.2 system-ui;margin:12px 0 7px;letter-spacing:-.05em}.overview-note{font-size:10px;line-height:1.5;color:var(--muted);padding-right:16px}.overview-arrow{position:absolute;right:12px;bottom:12px;color:var(--ok);font-size:15px}.overview-tile[data-tone=warn]{border-top-color:var(--warn)}.overview-tile[data-tone=bad]{border-top-color:var(--bad)}.overview-tile[data-tone=bad] .overview-value{color:var(--bad)}.overview-tile[data-tone=warn] .overview-value{color:var(--warn)}
+.mission-row{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(270px,1fr);gap:14px;margin:0 0 24px}.next-move{background:linear-gradient(115deg,#222d1e,#0e1817);border:1px solid #71805c;border-radius:3px;padding:23px;position:relative;overflow:hidden}.next-move:after{content:'';position:absolute;right:-40px;top:-55px;width:210px;height:210px;border:1px solid #b4cc7d14;border-radius:50%;box-shadow:0 0 0 26px #b4cc7d06,0 0 0 56px #b4cc7d04;pointer-events:none}.next-move .eyebrow{color:var(--ok);font:9px monospace;letter-spacing:.17em}.next-move h3{font-size:20px;line-height:1.3;font-weight:500;margin:13px 0 9px;max-width:480px}.next-move p{font-size:12px;color:var(--muted);margin:0 0 18px;max-width:530px;position:relative;z-index:1}.next-move a{display:inline-block;border-bottom:1px solid #95b37a;color:var(--ok);padding-bottom:4px;font-size:11px;text-decoration:none}.pipeline{background:#0d1718;border:1px solid var(--line);border-radius:3px;display:grid;grid-template-columns:106px 1fr;align-items:center;padding:18px;gap:17px}.radar{position:relative;width:104px;height:104px;border:1px solid #6d8b77;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 16px,#88ae8a22 17px 18px,transparent 19px 32px)}.radar:before{content:'';position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 25deg,transparent 0 275deg,#a5d39f22 320deg,transparent 321deg),linear-gradient(transparent 49.5%,#759b7855 50%,transparent 50.5%),linear-gradient(90deg,transparent 49.5%,#759b7855 50%,transparent 50.5%)}.radar:after{content:'◈';position:absolute;inset:0;display:grid;place-items:center;color:var(--ok);font-size:18px}.pipeline .eyebrow{font:9px monospace;color:var(--cyan);letter-spacing:.1em}.pipeline p{font-size:11px;color:var(--muted);margin:9px 0}.pipeline-counts{display:flex;gap:22px;margin-top:11px}.pipeline-counts strong{display:block;font:25px monospace;color:var(--ink)}.pipeline-counts span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}.pipeline a{display:inline-block;color:var(--cyan);font-size:11px;text-decoration:none;margin-top:13px}
+.section-heading{display:flex;align-items:center;gap:16px;margin:5px 0 14px}.section-heading h2{font:10px monospace;letter-spacing:.15em;font-weight:400;margin:0;white-space:nowrap;color:var(--muted)}.section-heading:after{content:'';height:1px;background:var(--line);width:100%}.section-heading span{font:9px monospace;color:#7e9286;white-space:nowrap;order:1}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:0;margin:0;gap:12px;max-width:none}.card,.card[data-section=money],.card[data-section=projects]{grid-column:auto;border-radius:3px;background:linear-gradient(115deg,#13201bbb,#0d1718);box-shadow:none}.card.is-open{grid-column:1/-1}.card:before{display:none}.card>h2{padding:0 14px 0 0;border:0;gap:0;min-height:54px}.panel-toggle{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;text-align:left;padding:16px;min-width:0;text-transform:uppercase;font-size:10px;letter-spacing:.09em;color:var(--ink);border-radius:0}.panel-toggle:hover{background:#cfec8a07}.panel-number{color:#a6ba8d;font:10px monospace}.panel-title{flex:1}.panel-state{width:5px;height:5px;border-radius:50%;background:#698378}.card[data-status=ok] .panel-state{background:var(--ok)}.card[data-status=error] .panel-state{background:var(--bad)}.card[data-status=degraded] .panel-state,.card[data-status=unconfigured] .panel-state{background:var(--warn)}.panel-arrow{color:var(--ok);font-size:17px}.panel-refresh{padding:4px 9px;min-height:30px;background:transparent;border-color:var(--line);font-size:13px}.card-summary{margin:0;padding:0 16px 16px 39px;color:var(--muted);font-size:11px;line-height:1.5}.card-body{border-top:1px solid var(--line);padding:22px}.card-body[hidden]{display:none}.project-list{grid-template-columns:repeat(3,minmax(0,1fr))}.project{border-radius:3px;padding:16px}.project h3{font-size:16px}.project p{font-size:11px}.metrics{gap:38px}.metric{flex:0 1 auto;min-width:235px}.ring{width:90px;height:90px;background:conic-gradient(var(--ok) var(--progress),#394738 var(--progress))}.ring:before{background:#101a16}.ring span{font-size:20px}.calendar-month{max-width:420px}.identity{font-size:17px}.alerts-wrap{margin:16px 0 0;border-top:1px solid var(--line);padding-top:10px}.alerts-wrap>summary{font-size:10px;color:var(--muted);letter-spacing:.07em}.alerts{padding:0;margin:10px 0;display:grid;gap:6px}.alert{font-size:11px;border-radius:2px}
+@media(min-width:1550px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.command-main{padding-left:40px;padding-right:40px}}
+@media(max-width:1100px){.command-shell{grid-template-columns:170px minmax(0,1fr)}.sidebar{padding:25px 8px}.nav a{font-size:10px;gap:7px}.command-main{padding:0 20px 35px}.overview{gap:8px}.overview-tile{padding:14px 11px}.overview-label{font-size:8px}.mission-row{grid-template-columns:1fr}.pipeline{grid-template-columns:76px 1fr}.radar{width:72px;height:72px}.pipeline-counts{display:inline-flex;margin-left:24px;vertical-align:middle}.pipeline p{display:none}.project-list{grid-template-columns:repeat(2,minmax(0,1fr))}header #stamp{max-width:210px}}
+@media(max-width:760px){html{scroll-padding-top:100px}header{height:auto;min-height:68px;padding:12px 16px;gap:10px;flex-wrap:wrap}header #stamp{order:3;width:100%;max-width:none;font-size:9px}header #connection{margin-left:auto;width:auto;font-size:9px}header a{margin-left:auto}header h1{font-size:10px}header button{min-height:30px;padding:5px 8px;font-size:10px}.command-shell{display:block}.sidebar{position:static;height:auto;padding:12px 16px 0;border:0;background:transparent}.sidebar-label,.sidebar-foot{display:none}.nav{display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding-bottom:10px;gap:6px;scrollbar-width:thin}.nav a{white-space:nowrap;flex-shrink:0;border-color:var(--line);font-size:10px;padding:8px}.nav .nav-number{display:none}.command-main{padding:0 16px 30px}.hero{padding:18px 0}.hero h2{font-size:27px}.hero p{font-size:10px}.mission-insignia{width:44px;height:44px;flex-shrink:0}.overview{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:16px 0}.overview-value{font-size:27px;margin:8px 0 6px}.overview-label{font-size:9px}.overview-note{font-size:10px}.mission-row{gap:10px;margin-bottom:20px}.next-move{padding:18px}.next-move h3{font-size:18px}.next-move p{font-size:11px}.pipeline{padding:15px;grid-template-columns:72px 1fr}.pipeline-counts{display:flex;margin:10px 0 0;gap:24px}.pipeline a{margin-top:9px}.grid{display:grid;grid-template-columns:1fr;gap:9px}.card{margin:0}.card.is-open{grid-column:auto}.card-body{padding:16px}.project-list{grid-template-columns:1fr}.panel-toggle{font-size:10px;min-height:50px}.card-summary{font-size:11px}.metrics{gap:18px}.metric{min-width:220px}.ring{width:74px;height:74px}.goal-form{grid-template-columns:1fr}.section-heading span{display:none}}
 </style>
 </head>
 <body>
@@ -33,13 +46,19 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
   <button id="refreshAll" type="button">Refresh all</button>
 </header>
 
-<section class="hero" aria-label="Mission overview">
-<div><span class="eyebrow">Forever Gold Agency / Mission control</span><h2>Build the future.<br><em>Account for today.</em></h2><p>Your money, projects and next moves in one place. Evidence first. Every unknown stays visible.</p></div><div class="orbit" aria-hidden="true">FGA / CORE</div>
-</section>
-<nav class="nav" id="sectionNav" aria-label="Dashboard sections"></nav>
-<div class="alerts" id="alerts" aria-live="polite"></div>
-
+<div class="command-shell">
+<aside class="sidebar"><p class="sidebar-label">OPERATIONS DIRECTORY</p><nav class="nav" id="sectionNav" aria-label="Dashboard sections"></nav><div class="sidebar-foot"><strong>ONE MISSION.</strong><br>Build income.<br>Protect time.<br>Know the position.</div></aside>
+<div class="command-main">
+<section class="hero" aria-label="Mission overview"><div><span class="eyebrow">BUSINESS OPERATIONS / MISSION OVERVIEW</span><h2>Build income. <em>Keep control.</em></h2><p>Financial position, next moves and income opportunities. One operating picture.</p></div><div class="mission-insignia" aria-hidden="true">FGA</div></section>
+<section class="overview" id="overview" aria-label="At a glance"></section>
+<div class="mission-row">
+<section class="next-move" aria-labelledby="nextTitle"><span class="eyebrow">PRIORITY / NEXT INCOME MOVE</span><h3 id="nextTitle">Awaiting your private Core</h3><p id="nextDescription">Your recorded next action will appear after the dashboard connects.</p><a id="nextLink" href="#section-projects">Open project briefing ↓</a></section>
+<section class="pipeline" aria-label="Income pipeline"><div class="radar" aria-hidden="true"></div><div><span class="eyebrow">INCOME PIPELINE</span><div class="pipeline-counts"><div><strong id="activeCount">—</strong><span>Open projects</span></div><div><strong id="ideaCount">—</strong><span>Ideas to validate</span></div></div><p>Validate → build → measure revenue</p><a id="ideasLink" href="#section-projects">Review income ideas ↓</a></div></section>
+</div>
+<div class="section-heading"><h2>OPERATIONAL INTELLIGENCE</h2><span>EXPAND A PANEL ↓</span></div>
 <main class="grid" id="grid"></main>
+<details class="alerts-wrap"><summary id="alertsSummary">System notices ↓</summary><div class="alerts" id="alerts" aria-live="polite"></div></details>
+</div></div>
 
 <script src="remote-config.js"></script>
 <script src="auth-gate.js"></script>
@@ -420,26 +439,73 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
     }
   };
 
+  var currentSections = {};
+  var registryHealthy = true;
+  var staleSections = new Set();
+  function available(d) { return registryHealthy && d && (d.status==='ok'||d.status==='degraded'); }
+  function allProjects(d) {
+    var seen={},out=[];['open','blocked','other'].forEach(function(k){(d&&d[k]||[]).forEach(function(p){if(!seen[p.id]){seen[p.id]=true;out.push(p);}});});return out;
+  }
+  function cardSummary(key,d) {
+    if(!registryHealthy)return 'Registry unavailable · results cannot be trusted';
+    if(!available(d))return d ? 'Source unavailable · expand for the reason' : 'Awaiting private Core';
+    if(key==='money')return money(d.mrr&&d.mrr.confirmed_usd)+' confirmed MRR · '+(d.goals&&d.goals.cash_collected_usd!=null?money(d.goals.cash_collected_usd)+' cash recorded':'cash not recorded');
+    if(key==='projects'){var p=allProjects(d);return p.filter(function(x){return x.state==='open';}).length+' open · '+p.filter(function(x){return x.state==='idea';}).length+' income ideas · '+(d.blocked||[]).length+' blocked';}
+    if(key==='pulse')return (d.current_block?d.current_block.block:'No scheduled block')+(d.next_block?' · Next '+d.next_block.time:'');
+    if(key==='outreach'){var today=d.today||{},day=(d.last_7_days||[]).find(function(x){return x.date===today.date;});return day&&day.logged?today.calls+' calls · '+today.emails+' emails logged today':'No outreach recorded today';}
+    if(key==='inbox'){var buckets=d.buckets||[],unread=buckets.find(function(x){return x.id==='unread';});return unread&&unread.status==='ok'?unread.count+(unread.count_is_estimate?'+':'')+' unread · '+buckets.length+' inbox views':buckets.length+' inbox views · some results unavailable';}
+    if(key==='calendar')return (d.today||[]).length+' events today · '+(d.upcoming||[]).length+' upcoming';
+    if(key==='clients')return (d.clients||[]).length+' clients · '+(d.owned||[]).length+' owned businesses · '+(d.prospects||[]).length+' prospects';
+    if(key==='pages'){var pages=(d.pages||[]).concat(d.backends||[]);return pages.filter(function(x){return x.ok;}).length+' / '+pages.length+' endpoints responding';}
+    if(key==='automations')return (d.counts?d.counts.active:'—')+' active workflows · '+(d.recent_failures||[]).length+' recent failures';
+    if(key==='marketing')return (d.totals?d.totals.runs:'—')+' recorded runs · '+money(d.totals&&d.totals.usd)+' recorded cost';
+    if(key==='tasks')return (d.in_progress||[]).length+' in progress · '+(d.todo||[]).length+' to do';
+    if(key==='journal')return d.today&&!d.today.looks_empty?'Today’s activity is recorded':'Today’s activity needs a record';
+    return 'Expand to inspect';
+  }
+  function renderOverview() {
+    var m=currentSections.money, g=available(m)&&m.goals||{}, mr=available(m)&&m.mrr||{}, p=currentSections.projects, pulse=currentSections.pulse;
+    var items=available(p)?allProjects(p):[], blockers=available(p)?(p.blocked||[]).length:null;
+    var unknown=Object.keys(currentSections).filter(function(k){return !available(currentSections[k])||currentSections[k].status==='degraded'||staleSections.has(k);}).length;
+    var livePages=currentSections.pages, critical=available(livePages)?(livePages.down||[]).filter(function(x){return x.critical;}).length:0;
+    var date=available(pulse)&&pulse.date?new Date(pulse.date+'T12:00:00'):null, days=date?new Date(date.getFullYear(),date.getMonth()+1,0).getDate()-date.getDate()+1:null;
+    var tiles=[
+      ['Cash collected',!available(m)?'Unknown':g.cash_collected_usd==null?'Not recorded':money(g.cash_collected_usd),g.cash_goal_usd?('Target '+money(g.cash_goal_usd)+' this month'):(available(m)?'Goal editor awaits Core activation':'Awaiting private Core'),'money','warn'],
+      ['Recurring revenue',mr.confirmed_usd==null?'—':money(mr.confirmed_usd),mr.goal_usd?('Confirmed floor / '+money(mr.goal_usd)+' goal'):'Confirmed MRR only','money',mr.gap_usd>0?'warn':''],
+      ['Time remaining',days==null?'—':days+' days',date?date.toLocaleDateString('en-US',{month:'long',year:'numeric'})+' · includes today':'This month','pulse',''],
+      ['Needs attention',blockers==null?'—':String(blockers+critical),blockers==null?'Awaiting project status':(blockers+' blocked'+(critical?' · '+critical+' critical outages':'')+(unknown?' · '+unknown+' sources need review':'')),critical?'pages':'projects',critical?'bad':blockers||unknown?'warn':'']
+    ];
+    var box=$('overview');box.textContent='';tiles.forEach(function(t){var a=el('a','overview-tile');a.href='#section-'+t[3];a.dataset.tone=t[4];a.appendChild(el('div','overview-label',t[0]));a.appendChild(el('div','overview-value',t[1]));a.appendChild(el('div','overview-note',(staleSections.has(t[3])?'STALE · ':'')+t[2]));a.appendChild(el('span','overview-arrow','↓'));a.onclick=function(){openCard(t[3]);};box.appendChild(a);});
+    $('activeCount').textContent=available(p)?items.filter(function(x){return x.state==='open';}).length:'—';
+    $('ideaCount').textContent=available(p)?items.filter(function(x){return x.state==='idea';}).length:'—';
+    var next=items.find(function(x){return x.state==='open'&&x.lane!=='thomas'&&x.id!=='command-center';});
+    $('nextTitle').textContent=next?next.title:(p?'Project intelligence unavailable':'Awaiting your private Core');
+    $('nextDescription').textContent=next?(next.next_action||'Next action not recorded.'):'No priority is inferred while the source is unavailable.';
+    if(staleSections.has('projects'))$('nextDescription').textContent='STALE · '+$('nextDescription').textContent;
+    CARDS.forEach(function(c){var card=$('section-'+c[0]);if(card)card.querySelector('.card-summary').textContent=(staleSections.has(c[0])?'STALE · ':'')+cardSummary(c[0],currentSections[c[0]]);});
+  }
+  function openCard(key,force) {
+    var card=$('section-'+key);if(!card)return;
+    var open=force===undefined?true:force;card.classList.toggle('is-open',open);card.querySelector('.card-body').hidden=!open;
+    card.querySelector('.panel-toggle').setAttribute('aria-expanded',String(open));card.querySelector('.panel-arrow').textContent=open?'↑':'↓';
+    document.querySelectorAll('#sectionNav a').forEach(function(a){if(a.hash==='#section-'+key&&open)a.setAttribute('aria-current','true');else a.removeAttribute('aria-current');});
+  }
   // ---- shell -------------------------------------------------------------
   function buildShell() {
-    var grid = $('grid');
-    CARDS.forEach(function (c) {
-      var key = c[0];
-      var nav=el('a',null,c[1]+' ↓');nav.href='#section-'+key;$('sectionNav').appendChild(nav);
-      var card = el('section', 'card'); card.id='section-'+key;
-      card.dataset.section = key;
-      var h = el('h2');
-      h.appendChild(el('span', null, c[1]));
-      var btn = el('button', null, '↻');
-      btn.title = 'Refresh ' + c[1]; btn.setAttribute('aria-label',btn.title);
-      btn.onclick = function () { refresh([key]).catch(function(){}); };
-      h.appendChild(btn);
-      card.appendChild(h);
-      var body = el('div', 'card-body');
-      body.appendChild(el('p', 'muted', 'loading…'));
-      card.appendChild(body);
-      grid.appendChild(card);
+    var grid=$('grid');
+    CARDS.forEach(function(c,index){var key=c[0],number=String(index+1).padStart(2,'0');
+      var nav=el('a');nav.href='#section-'+key;nav.appendChild(el('span','nav-number',number));nav.appendChild(el('span',null,c[1]));nav.appendChild(el('span','nav-arrow','↓'));nav.onclick=function(){openCard(key);};$('sectionNav').appendChild(nav);
+      var card=el('section','card');card.id='section-'+key;card.dataset.section=key;
+      var h=el('h2'),toggle=el('button','panel-toggle');toggle.type='button';toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls','body-'+key);
+      toggle.appendChild(el('span','panel-number',number));toggle.appendChild(el('span','panel-title',c[1]));var dot=el('span','panel-state');dot.setAttribute('aria-hidden','true');toggle.appendChild(dot);var arrow=el('span','panel-arrow','↓');arrow.setAttribute('aria-hidden','true');toggle.appendChild(arrow);toggle.onclick=function(){openCard(key,!card.classList.contains('is-open'));};h.appendChild(toggle);
+      var refreshButton=el('button','panel-refresh','↻');refreshButton.type='button';refreshButton.setAttribute('aria-label','Refresh '+c[1]);refreshButton.onclick=function(){refresh([key]).catch(function(){});};h.appendChild(refreshButton);card.appendChild(h);
+      card.appendChild(el('p','card-summary','Awaiting private Core'));
+      var body=el('div','card-body');body.id='body-'+key;body.hidden=true;body.appendChild(el('p','muted','Awaiting private Core'));card.appendChild(body);grid.appendChild(card);
     });
+    $('nextLink').onclick=function(){projectFilter='projects';if(currentSections.projects)paint('projects',currentSections.projects);openCard('projects');};
+    $('ideasLink').onclick=function(){projectFilter='ideas';if(currentSections.projects)paint('projects',currentSections.projects);openCard('projects');};
+    function followHash(){var key=location.hash.replace('#section-','');if(CARDS.some(function(c){return c[0]===key;}))openCard(key);}
+    window.addEventListener('hashchange',followHash);followHash();renderOverview();
   }
 
   function paint(key, data) {
@@ -449,9 +515,9 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
     if(key==='money'&&unsavedGoals)return;
     body.textContent = '';
     card.dataset.status = data.status || 'unknown';
+    if(!registryHealthy){card.dataset.status='error';body.appendChild(el('p','bad','Registry unavailable. Repair the source before trusting this panel.'));return;}
     if (data.status === 'error' || data.status === 'unconfigured') {
       body.appendChild(el('p', 'bad', esc(data.error || 'unavailable')));
-      // A failed live source still shows whatever it did manage to collect.
       return; // An unavailable source must never look like a verified zero.
     }
     try {
@@ -465,6 +531,7 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
   function paintAlerts(alerts) {
     var box = $('alerts');
     box.textContent = '';
+    $('alertsSummary').textContent=(alerts||[]).length+' system notices ↓';
     (alerts || []).forEach(function (a) {
       box.appendChild(el('div', 'alert ' + a.level, '[' + a.source + '] ' + a.message));
     });
@@ -475,12 +542,15 @@ button,input,textarea{font:inherit;color:var(--ink);background:#091613;border:1p
     var q = '/api/command-center?refresh=1' + (sections ? '&sections=' + sections.join(',') : '');
     $('stamp').textContent = 'refreshing…';
     return api(q).then(function (payload) {
-      Object.keys(payload.sections || {}).forEach(function (k) { paint(k, payload.sections[k]); });
+      registryHealthy=!payload.registry_error;
+      Object.keys(payload.sections || {}).forEach(function (k) { if(k==='money'&&unsavedGoals)return;currentSections[k]=payload.sections[k];staleSections.delete(k);paint(k,payload.sections[k]); });
+      renderOverview();
       if (!sections) paintAlerts(payload.alerts);
       $('stamp').textContent = new Date(payload.generated_at).toLocaleTimeString() + ' · ' + payload.build_ms + 'ms';
       if (payload.registry_error) { $('stamp').textContent += ' · REGISTRY ERROR'; var warning=el('div','alert critical','Registry unavailable. Empty lists below are not proof there are no projects or clients.');$('alerts').prepend(warning); }
       return payload;
     }).catch(function (err) {
+      (sections||CARDS.map(function(c){return c[0];})).forEach(function(k){staleSections.add(k);});renderOverview();
       $('stamp').textContent = 'Refresh failed: '+err.message+'. Displayed data may be stale.';
       if (err.authRequired) $('connection').textContent = 'Not authenticated — connect CORE LINK.';
       throw err;

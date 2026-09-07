@@ -30,7 +30,25 @@
   // localhost, plain window.fetch + relative paths (the default) is correct.
   let activeFetch = window.fetch.bind(window);
   let activeBase = '';
+  /* Once a caller has pinned a remote core, a later call that omits `base`
+     must NOT drag the gate back to relative paths through the patched
+     window.fetch — that routes the gate's own login requests into
+     ensureRemoteSession(), which is already awaiting this very gate, and both
+     sides hang. index.html's DOMContentLoaded handler used to do exactly
+     that, which is how tapping Unlock could end up doing nothing at all. */
+  let transportPinned = false;
   function apiUrl(path) { return activeBase + path; }
+  function applyTransport(opts) {
+    const base = opts && typeof opts.base === 'string' ? opts.base : '';
+    if (base) {
+      activeBase = base;
+      activeFetch = (opts && opts.fetchImpl) || window.fetch.bind(window);
+      transportPinned = true;
+    } else if (!transportPinned) {
+      activeBase = '';
+      activeFetch = (opts && opts.fetchImpl) || window.fetch.bind(window);
+    }
+  }
 
   function b64urlToBuffer(b64url) {
     const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
@@ -157,6 +175,9 @@
   function renderChoice(gate, refs) {
     const type = detectDeviceType();
     refs.body.innerHTML = '';
+    // Warm a challenge now, while nothing is blocking, so the tap handler can
+    // reach navigator.credentials.get() without an await in front of it.
+    prefetchLoginOptions(false);
     const biometricBtn = document.createElement('button');
     biometricBtn.className = 'primary';
     biometricBtn.textContent = `Unlock with ${platformLabel(type)}`;
@@ -273,24 +294,119 @@
     }
   }
 
-  async function loginWithPasskey(gate, refs) {
+  /* iOS Safari only honours navigator.credentials.get() while the tap that
+     triggered it still holds transient user activation. Awaiting a network
+     round trip for the challenge first spends that activation, so the call
+     rejects with NotAllowedError and the Face ID sheet never appears — which
+     is exactly how the phone ended up never asking for anything. Fetch the
+     challenge ahead of the tap and keep the handler synchronous up to the
+     credentials.get() call. */
+  const LOGIN_OPTIONS_TTL_MS = 45000; // server challenge lives 60s; stay inside it
+  let warmLoginOptions = null;
+  let warmLoginOptionsAt = 0;
+  let warmLoginInFlight = false;
+  function prefetchLoginOptions(force) {
+    if (warmLoginInFlight) return;
+    if (!force && warmLoginOptions && Date.now() - warmLoginOptionsAt < LOGIN_OPTIONS_TTL_MS) return;
+    warmLoginInFlight = true;
+    apiPost('/api/auth/webauthn/login/options', {})
+      .then((optRes) => { warmLoginOptions = (optRes && optRes.options) || null; warmLoginOptionsAt = Date.now(); })
+      .catch(() => { warmLoginOptions = null; })
+      .finally(() => { warmLoginInFlight = false; });
+  }
+  // Single-use: a challenge may only be spent once, so hand it out and drop it.
+  function takeWarmLoginOptions() {
+    const opts = warmLoginOptions;
+    if (!opts) return null;
+    if (Date.now() - warmLoginOptionsAt >= LOGIN_OPTIONS_TTL_MS) { warmLoginOptions = null; return null; }
+    warmLoginOptions = null;
+    return opts;
+  }
+
+  function loginWithPasskey(gate, refs) {
     setMsg(refs, '', false);
+    const warm = takeWarmLoginOptions();
+    if (!warm) {
+      // No warm challenge (first paint raced the tap, or the fetch failed).
+      // Fall back to the async path; on iOS the gesture may be lost, but the
+      // error is now reported honestly and the retry runs warm.
+      prefetchLoginOptions(true);
+      return loginWithPasskeyCold(gate, refs);
+    }
+    if (!warm.allowCredentials || warm.allowCredentials.length === 0) {
+      // Nothing registered anywhere yet — first-ever setup goes through email.
+      return renderOtpRequest(gate, refs, 'enroll');
+    }
+    let request;
+    try {
+      request = navigator.credentials.get({ publicKey: credentialRequestOptionsFromJSON(warm) });
+    } catch (err) {
+      return handlePasskeyError(gate, refs, err);
+    }
+    setMsg(refs, `Waiting for ${platformLabel(detectDeviceType())}…`, true);
+    completePasskeyLogin(gate, refs, request);
+  }
+
+  async function loginWithPasskeyCold(gate, refs) {
     try {
       const optRes = await apiPost('/api/auth/webauthn/login/options', {});
       if (!optRes.options.allowCredentials || optRes.options.allowCredentials.length === 0) {
-        // No devices registered yet anywhere — first-ever setup goes through email.
         return renderOtpRequest(gate, refs, 'enroll');
       }
       const publicKey = credentialRequestOptionsFromJSON(optRes.options);
-      const cred = await navigator.credentials.get({ publicKey });
+      await completePasskeyLogin(gate, refs, navigator.credentials.get({ publicKey }), false);
+    } catch (err) {
+      handlePasskeyError(gate, refs, err);
+    }
+  }
+
+  /* The server keeps a single global currentAuthChallenge (auth.js), so the
+     last challenge issued anywhere wins. Warming one ahead of the tap means a
+     second device merely opening the gate can invalidate this one. Rare, but
+     it would otherwise turn a successful Face ID into a hard failure, so on a
+     rejected verify fall back to the cold path once and re-issue. */
+  async function completePasskeyLogin(gate, refs, request, allowRetry) {
+    let cred;
+    try {
+      cred = await request;
+    } catch (err) {
+      return handlePasskeyError(gate, refs, err);
+    }
+    try {
       const result = await apiPost('/api/auth/webauthn/login/verify', { response: authenticationResponseToJSON(cred) });
       rememberSession(result);
       finishAuth(gate);
     } catch (err) {
-      // Most common case: this device has no registered passkey yet.
-      renderOtpRequest(gate, refs, 'enroll');
-      setMsg(refs, err && err.name === 'NotAllowedError' ? '' : (err.message || ''), false);
+      if (allowRetry !== false) {
+        setMsg(refs, 'Re-checking with the core…', true);
+        return loginWithPasskeyCold(gate, refs);
+      }
+      handlePasskeyError(gate, refs, err);
     }
+  }
+
+  /* The old handler sent every failure to the enrollment screen, so a phone
+     that already holds a passkey was told it had none and was pushed at an
+     email code instead. WebAuthn deliberately returns the same NotAllowedError
+     whether the user cancelled, the sheet timed out, or no credential matched,
+     so the honest move is to return to the choice screen — both routes one tap
+     away — and say which two things it could be. */
+  function handlePasskeyError(gate, refs, err) {
+    prefetchLoginOptions(true);
+    const name = err && err.name;
+    const label = platformLabel(detectDeviceType());
+    if (name === 'NotAllowedError' || name === 'AbortError' || name === 'TimeoutError') {
+      renderChoice(gate, refs);
+      setMsg(refs, `${label} didn't complete — cancelled, timed out, or this device was never enrolled. Tap to try again, or use an email code to register it.`, false);
+      return;
+    }
+    if (name === 'SecurityError' || name === 'NotSupportedError') {
+      renderChoice(gate, refs);
+      setMsg(refs, `${label} isn't available in this browser. Use an email code instead.`, false);
+      return;
+    }
+    renderChoice(gate, refs);
+    setMsg(refs, (err && err.message) || 'Unlock failed.', false);
   }
 
   function setMsg(refs, text, ok) {
@@ -298,13 +414,25 @@
     refs.msg.className = 'msg' + (ok ? ' ok' : '');
   }
 
-  let onAuthedCb = null;
-  let onCancelCb = null;
+  /* Waiters are a LIST, not a single slot. index.html can have two callers
+     waiting on the same gate (the CORE LINK handshake and the app boot); the
+     old single-slot version silently dropped the first one, leaving its
+     promise pending forever and every /api/ call queued behind it. */
+  let authedCbs = [];
+  let cancelCbs = [];
+  function addWaiters(onAuthed, onCancel) {
+    if (typeof onAuthed === 'function') authedCbs.push(onAuthed);
+    if (typeof onCancel === 'function') cancelCbs.push(onCancel);
+  }
+  function drainWaiters(which) {
+    const cbs = which === 'authed' ? authedCbs : cancelCbs;
+    authedCbs = []; cancelCbs = [];
+    cbs.forEach((cb) => { try { cb(); } catch (_) { /* one waiter must not stop the rest */ } });
+  }
   function finishAuth(gate) {
-    gate.classList.add('hidden');
-    onCancelCb = null;
+    if (gate) gate.classList.add('hidden');
     if (window.CortanaDeviceManager) window.CortanaDeviceManager.refresh();
-    if (onAuthedCb) { const cb = onAuthedCb; onAuthedCb = null; cb(); }
+    drainWaiters('authed');
   }
 
   /* Dismissing the gate grants nothing — it only stops a full-screen overlay
@@ -312,26 +440,65 @@
      authenticated" and falls back to the sanitized static data, so the live
      core stays just as locked as it was before the tap. */
   function dismissGate(gate) {
-    gate.remove();
-    onAuthedCb = null;
-    if (onCancelCb) { const cb = onCancelCb; onCancelCb = null; cb(); }
+    // Hide, don't remove: the same overlay has to be re-openable later, both
+    // for "Log in again" and for a session that dies mid-session.
+    if (gate) gate.classList.add('hidden');
+    drainWaiters('cancel');
+  }
+
+  // One overlay for the life of the page, reopened rather than re-appended.
+  // The old code built a fresh #authGate on every call, so a second gate could
+  // stack on the first with a duplicate id and stale handlers underneath it.
+  let gateEl = null;
+  let gateRefs = null;
+  function openGate() {
+    if (!gateEl || !document.body.contains(gateEl)) {
+      gateEl = buildOverlay();
+      gateRefs = { body: gateEl.querySelector('#authGateBody'), msg: gateEl.querySelector('#authGateMsg') };
+    }
+    gateEl.classList.remove('hidden');
+    return gateEl;
   }
 
   window.initAuthGate = async function initAuthGate(onAuthed, opts) {
-    activeFetch = (opts && opts.fetchImpl) || window.fetch.bind(window);
-    activeBase = (opts && opts.base) || '';
-    onCancelCb = (opts && opts.onCancel) || null;
-    onAuthedCb = onAuthed;
-    let authenticated = false;
-    try {
-      const status = await api('/api/auth/session');
-      authenticated = !!status.authenticated;
-    } catch (_) { /* treat as unauthenticated */ }
+    applyTransport(opts);
+    addWaiters(onAuthed, opts && opts.onCancel);
     buildDeviceManager();
-    if (authenticated) { onAuthedCb = null; onAuthed(); return; }
-    const gate = buildOverlay();
-    const refs = { body: gate.querySelector('#authGateBody'), msg: gate.querySelector('#authGateMsg') };
-    renderChoice(gate, refs);
+    // opts.force skips the "are we already in?" probe — that probe is exactly
+    // what a stale-but-not-yet-rejected cookie sails through, which is how a
+    // dead session kept being mistaken for a live one.
+    if (!(opts && opts.force)) {
+      let authenticated = false;
+      try {
+        const status = await api('/api/auth/session');
+        authenticated = !!status.authenticated;
+      } catch (_) { /* treat as unauthenticated */ }
+      if (authenticated) { finishAuth(gateEl); return; }
+    }
+    const gate = openGate();
+    setMsg(gateRefs, '', false);
+    renderChoice(gate, gateRefs);
+  };
+
+  /* The explicit way back in. Nothing else on the page could force a fresh
+     unlock: the overlay only ever appeared during boot, so once a session died
+     mid-use there was no login left to offer — the CORE LINK button read
+     "Core Live" and its only action was to disconnect. Resolves true once the
+     core has minted a new session, false if Chief backs out. */
+  window.CortanaAuth.relogin = function relogin(opts) {
+    applyTransport(opts);
+    return new Promise((resolve) => {
+      clearRememberedSession();
+      // Drop the server-side session too, so a half-dead cookie can't answer
+      // the next probe with "authenticated" and skip the gate all over again.
+      apiPost('/api/auth/logout').catch(() => {}).then(() => {
+        clearRememberedSession();
+        window.initAuthGate(
+          () => resolve(true),
+          Object.assign({}, opts, { force: true, onCancel: () => resolve(false) }),
+        );
+      });
+    });
   };
 
   // ---- device management (list / revoke registered passkey devices) ----
@@ -359,20 +526,29 @@
       borderRadius: '8px', padding: '14px', color: 'rgba(210,255,244,.9)', font: '12px sans-serif',
     });
 
+    /* The device list needs a session to load. When there isn't one the old
+       panel replaced its whole contents with the 401 text — taking the only
+       login/logout controls on the page down with it, precisely when Chief
+       needed them. Keep the controls in a footer the list can never clear. */
+    const listEl = document.createElement('div');
+    const footerEl = document.createElement('div');
+    panel.appendChild(listEl);
+    panel.appendChild(footerEl);
+
     async function refresh() {
-      panel.innerHTML = '<div style="opacity:.6">Loading…</div>';
+      listEl.innerHTML = '<div style="opacity:.6">Loading…</div>';
       try {
         const { devices } = await api('/api/auth/devices');
-        panel.innerHTML = '';
+        listEl.innerHTML = '';
         const title = document.createElement('div');
         title.textContent = 'Registered devices';
         title.style.cssText = 'font-weight:600;margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase;font-size:10px;color:rgba(255,214,109,.8)';
-        panel.appendChild(title);
+        listEl.appendChild(title);
         if (!devices.length) {
           const none = document.createElement('div');
           none.style.opacity = '.6';
           none.textContent = 'No passkeys registered yet — email code was used to sign in.';
-          panel.appendChild(none);
+          listEl.appendChild(none);
         }
         devices.forEach((d) => {
           const row = document.createElement('div');
@@ -389,17 +565,43 @@
             catch (err) { alert(err.message); revokeBtn.disabled = false; }
           };
           row.appendChild(revokeBtn);
-          panel.appendChild(row);
+          listEl.appendChild(row);
         });
-        const logoutBtn = document.createElement('button');
-        logoutBtn.textContent = 'Log out this device';
-        logoutBtn.style.cssText = 'margin-top:12px;width:100%;padding:6px;background:rgba(120,231,208,.08);border:1px solid rgba(120,231,208,.3);color:inherit;border-radius:5px;cursor:pointer;font-size:11px';
-        logoutBtn.onclick = async () => { await apiPost('/api/auth/logout'); clearRememberedSession(); location.reload(); };
-        panel.appendChild(logoutBtn);
       } catch (err) {
-        panel.innerHTML = `<div style="color:rgba(255,150,150,.85)">${err.message}</div>`;
+        listEl.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.style.cssText = 'color:rgba(255,150,150,.85)';
+        msg.textContent = err.message;
+        listEl.appendChild(msg);
       }
     }
+
+    const ctlStyle = 'margin-top:10px;width:100%;padding:7px;background:rgba(120,231,208,.08);border:1px solid rgba(120,231,208,.3);color:inherit;border-radius:5px;cursor:pointer;font-size:11px';
+    const loginBtn = document.createElement('button');
+    loginBtn.id = 'authReloginBtn';
+    loginBtn.textContent = 'Log in again';
+    loginBtn.title = 'Force a fresh CORE LINK unlock, even if this page thinks it is already connected';
+    loginBtn.style.cssText = ctlStyle + ';border-color:rgba(255,196,46,.5);background:rgba(255,196,46,.10)';
+    loginBtn.onclick = async () => {
+      panel.style.display = 'none';
+      // index.html owns the CORE LINK button label and the switchboard, so let
+      // it drive when it's there; fall back to a bare re-unlock on localhost.
+      if (window.cortanaReconnectCore) await window.cortanaReconnectCore();
+      else await window.CortanaAuth.relogin();
+      refresh();
+    };
+    footerEl.appendChild(loginBtn);
+
+    const logoutBtn = document.createElement('button');
+    logoutBtn.id = 'authLogoutBtn';
+    logoutBtn.textContent = 'Log out this device';
+    logoutBtn.style.cssText = ctlStyle;
+    logoutBtn.onclick = async () => {
+      try { await apiPost('/api/auth/logout'); } catch (_) { /* log out locally regardless */ }
+      clearRememberedSession();
+      location.reload();
+    };
+    footerEl.appendChild(logoutBtn);
 
     btn.onclick = () => {
       const open = panel.style.display !== 'none';

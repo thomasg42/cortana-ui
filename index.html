@@ -876,7 +876,7 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20260811-ios-session-token-2"></script>
+<script src="auth-gate.js?v=20260907-relogin-1"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -896,6 +896,11 @@ function lsGet(key, legacyKey) {
   const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
   if (isLocal) return;
   window.CORTANA_STATIC_MODE = true;
+  // Distinct from CORTANA_STATIC_MODE, which flips to false the moment the
+  // core connects. This one stays true for the whole page life and means
+  // "the CORE LINK handshake below owns the auth gate — nobody else may
+  // re-initialise it". See the DOMContentLoaded handler at the bottom.
+  window.CORTANA_REMOTE_MODE = true;
   const realFetch = window.fetch.bind(window);
   /* A Cloudflare Quick Tunnel can go alive-but-dead: the hostname still
      resolves and the socket opens, but nothing ever answers. Without a budget
@@ -974,6 +979,25 @@ function lsGet(key, legacyKey) {
     }
     return root;
   };
+  /* One place that answers "is the core reachable, and does it still accept
+     this browser's session?". The CORE LINK button needs the same answer the
+     boot probe needs — without it, a button reading "Core Live" over a session
+     the server has already dropped can only ever disconnect, never log back
+     in, which is how tapping it just logged Chief out. */
+  async function probeCoreAuth() {
+    try {
+      const response = await fetchWithTimeout(remoteCore + '/api/remote/status', {
+        headers: remoteHeaders(),
+        credentials: 'include',
+      }, CORE_PROBE_MS);
+      if (!response.ok) return { reachable: false, authenticated: false };
+      const status = await response.json().catch(() => ({}));
+      return { reachable: true, authenticated: !!status.authenticated };
+    } catch (_) {
+      return { reachable: false, authenticated: false };
+    }
+  }
+
   /* Declining the unlock has to stick. Every /api/ call comes back through
      here, so without this the gate re-arms on the very next one and the
      overlay is effectively still permanent. Tapping CORE LINK clears it. */
@@ -985,13 +1009,9 @@ function lsGet(key, legacyKey) {
     if (connectPromise) return connectPromise;
     connectPromise = (async () => {
       try {
-        const response = await fetchWithTimeout(remoteCore + '/api/remote/status', {
-          headers: remoteHeaders(),
-          credentials: 'include',
-        }, CORE_PROBE_MS);
-        if (!response.ok) throw new Error('Core unreachable.');
-        const status = await response.json().catch(() => ({}));
-        if (!status.authenticated) {
+        const probe = await probeCoreAuth();
+        if (!probe.reachable) throw new Error('Core unreachable.');
+        if (!probe.authenticated) {
           // Core is reachable but the browser has no valid CORE LINK session
           // yet — gate on Touch ID / Face ID / email code before granting
           // live tool access. See brainstorms/cortana-biometric-auth.md.
@@ -1096,6 +1116,18 @@ function lsGet(key, legacyKey) {
     try {
       const headers = remoteHeaders((opts && opts.headers) || {});
       const response = await realFetch(remoteCore + u, { ...(opts || {}), headers, credentials: 'include' });
+      /* A 401/403 means the core dropped this session under us — expired,
+         revoked, or the server restarted. Nothing used to notice: liveVerified
+         stayed true, so ensureRemoteSession() short-circuited on every later
+         call, the gate could never re-appear, and the button went on claiming
+         "Core Live" while everything silently failed. Go straight back to
+         locked so the very next /api/ call re-offers the unlock. */
+      if (response.status === 401 || response.status === 403) {
+        if (window.CortanaAuth && window.CortanaAuth.clearToken) window.CortanaAuth.clearToken();
+        setCoreState(false);
+        coreLinkDeclined = false;
+        return staticFetch(u, opts);
+      }
       if (response.ok) setCoreState(true);
       return response;
     } catch (_) {
@@ -1104,24 +1136,64 @@ function lsGet(key, legacyKey) {
     }
   };
 
+  const coreLinkOnline = () => {
+    buildSwitchboard();
+    if (window.cortanaRefreshGalaxy) window.cortanaRefreshGalaxy();
+  };
+
+  /* Force a fresh unlock regardless of what this page currently believes.
+     This is the "log me back in" path — it throws away the local token and
+     the server session first, so a half-dead cookie can't make the probe
+     answer "authenticated" and skip the gate. Wired to the Devices panel's
+     "Log in again" (auth-gate.js) and reusable from the console. */
+  window.cortanaReconnectCore = async function cortanaReconnectCore() {
+    if (!remoteCore) return false;
+    coreLinkDeclined = false;
+    if (!window.CortanaAuth || !window.CortanaAuth.relogin) return ensureRemoteSession();
+    const ok = await window.CortanaAuth.relogin({ fetchImpl: realFetch, base: remoteCore });
+    setCoreState(!!ok);
+    if (!ok) return false;
+    window.dispatchEvent(new CustomEvent('cortana:remote-connected'));
+    coreLinkOnline();
+    return true;
+  };
+
   if (coreButton) {
     coreButton.style.display = 'block';
+    let coreButtonBusy = false;
     coreButton.addEventListener('click', async () => {
-      // Tapping CORE LINK is an explicit ask, so it always re-offers the
-      // unlock even if it was declined earlier in this session.
-      coreLinkDeclined = false;
-      if (isConnected()) {
-        setCoreState(false);
-        addMsg('Private core disconnected. Public display mode remains active.', 'system');
-        return;
-      }
-      const connected = await ensureRemoteSession();
-      if (connected) {
-        buildSwitchboard();
-        if (window.cortanaRefreshGalaxy) window.cortanaRefreshGalaxy();
-        addMsg('Private core connected. Live voice, vault, memory, calendar, web, and tools are online.', 'system');
-      } else {
-        addMsg('Private core is unreachable right now. Public display mode remains active.', 'system');
+      if (coreButtonBusy) return;      // a second tap mid-handshake used to race the first
+      coreButtonBusy = true;
+      try {
+        // Tapping CORE LINK is an explicit ask, so it always re-offers the
+        // unlock even if it was declined earlier in this session.
+        coreLinkDeclined = false;
+        if (isConnected()) {
+          /* Don't take "Core Live" at face value before honouring this as a
+             disconnect. If the session already died server-side the label is
+             lying, and Chief tapping it means "log me back in" — treating
+             that as a disconnect is exactly how this button ended up only
+             ever logging him out. Re-probe, and disconnect only if the core
+             genuinely still accepts this session. */
+          const probe = await probeCoreAuth();
+          if (probe.reachable && probe.authenticated) {
+            setCoreState(false);
+            addMsg('Private core disconnected. Public display mode remains active.', 'system');
+            return;
+          }
+          if (window.CortanaAuth && window.CortanaAuth.clearToken) window.CortanaAuth.clearToken();
+          setCoreState(false);
+          addMsg('That CORE LINK session had already expired — unlocking again.', 'system');
+        }
+        const connected = await ensureRemoteSession();
+        if (connected) {
+          coreLinkOnline();
+          addMsg('Private core connected. Live voice, vault, memory, calendar, web, and tools are online.', 'system');
+        } else {
+          addMsg('Private core is unreachable right now. Public display mode remains active.', 'system');
+        }
+      } finally {
+        coreButtonBusy = false;
       }
     });
   }
@@ -3344,7 +3416,14 @@ window.addEventListener('DOMContentLoaded', () => {
   // http://localhost:3000 access is refused server-side (server.js, 403
   // unless CORTANA_ALLOW_LOCAL_UI=1), so this branch is a dev-mode-only
   // fallback, never the live production gate.
-  if (window.CORTANA_STATIC_MODE) { bootCortanaApp(); return; }
+  /* On the public deploy the CORE LINK handshake above owns the gate and has
+     already pinned it to the remote core. Re-initialising it from here — which
+     happened whenever the boot probe landed before DOMContentLoaded — re-aimed
+     it at relative paths through the patched fetch, so the gate's own login
+     requests queued behind the very connect it was blocking and the Unlock
+     button did nothing at all. Boot the app instead; the overlay sits on top
+     of the public snapshot until Chief unlocks. */
+  if (window.CORTANA_REMOTE_MODE || window.CORTANA_STATIC_MODE) { bootCortanaApp(); return; }
   if (window.initAuthGate) { window.initAuthGate(bootCortanaApp); } else { bootCortanaApp(); }
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list

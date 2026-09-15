@@ -52,6 +52,25 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
 /* Proactive working view: vivid states, instant actions, durable completion. */
 .proactive-banner{margin:8px 0 18px;padding:14px 18px;background:linear-gradient(110deg,#145a70,#294a8a);border:1px solid #65e1f3;border-radius:10px;color:#dbfbff;font-size:16px}.proactive-banner strong{color:#a5ffe2}.priority-board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0 0 24px}.priority-item{min-width:0;padding:20px;border:2px solid #50d3ee;border-radius:14px;background:linear-gradient(135deg,#11628a,#244d85);box-shadow:0 6px 0 #103151,0 12px 24px #071a3340}.priority-item h3{font-size:24px;line-height:1.25;margin:10px 0;color:#e4fcff;overflow-wrap:anywhere}.priority-item p{font-size:16px;color:#d1ecff;line-height:1.55}.priority-item[data-tone=cash]{grid-column:1/-1;background:linear-gradient(125deg,#ed481d,#a71e28 75%);border-color:#ffb45b;box-shadow:0 7px 0 #761929,0 15px 35px #ed461d50}.priority-item[data-tone=cash] h3{font-size:clamp(26px,3.3vw,40px);font-weight:900;color:#fff1bc;text-shadow:0 2px 0 #b5480d,0 4px 0 #762612,0 6px 8px #41101490;letter-spacing:-.025em}.priority-item[data-tone=cash] p{color:#fff2df}.priority-item[data-tone=sales]{background:linear-gradient(130deg,#146b42,#185856);border-color:#6affb7}.priority-item[data-tone=personal]{background:linear-gradient(130deg,#654295,#314f94);border-color:#cbadff}.priority-item[data-state=blocked]{border-color:#ffc767}.work-meta{font-size:12px;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:#e4f5ff;display:flex;gap:8px;flex-wrap:wrap}.work-check{display:flex;align-items:center;gap:10px;width:fit-content;max-width:100%;padding:10px 12px;margin-top:14px;background:#11374b;border:1px solid #a2e7ef;border-radius:8px;color:#e9ffff;cursor:pointer;font-size:16px;font-weight:700;min-height:44px}.work-check input{width:23px;height:23px;accent-color:#ff932f;flex-shrink:0}.work-check:focus-within{outline:3px solid #fff1a8;outline-offset:3px}.work-check:has(input:disabled){opacity:.7;cursor:wait}.work-notice{color:#ffe3ac;font-size:14px;min-height:1.4em}.work-feedback{padding:10px 0;font-size:16px;color:#caffea}.work-feedback button{margin-left:12px;min-height:44px}.project[data-state=paused]{background:linear-gradient(140deg,#584575,#394b72);border:1px solid #ba99e3}.project[data-state=open],.project[data-state=in_progress]{background:linear-gradient(140deg,#12647d,#214e76);border:1px solid #55e8ce}.project[data-state=blocked]{border:2px solid #ffbb68}.project-column{min-width:0}.project-column>h3{font-size:21px;color:#c8f9ff;margin:0 0 12px}.project-column .project{margin-bottom:12px}.project-column .project h3{font-size:21px}.project-column .project p{font-size:15px}.overview-tile:first-child{background:linear-gradient(135deg,#b6371e,#831d30);border:2px solid #ffab50;box-shadow:0 4px 0 #5c2034}.overview-tile:first-child .overview-label,.overview-tile:first-child .overview-value{color:#ffe8af;text-shadow:0 2px 0 #792314}.overview-tile:first-child .overview-note{color:#ffe5d8}.card[data-section=outreach]{background:linear-gradient(110deg,#155943,#20596b);border-color:#69efb4;border-left-color:#69efb4}.card[data-section=outreach] .panel-title,.card[data-section=outreach] .priority-tag{color:#a1ffd2}.nav a[href="#section-outreach"]{color:#a1ffd2;border-left-color:#65f3ad;background:#1c594b}.priority-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;color:#b9faff}.priority-heading h2{font-size:22px}.priority-heading span{font-size:14px;color:#c2e7f2}@media(max-width:760px){.priority-board{grid-template-columns:1fr}.priority-item{padding:17px}.priority-item[data-tone=cash]{grid-column:auto}.priority-item h3{font-size:23px}.priority-heading{display:block}.priority-heading span{display:block;margin-bottom:12px}.project-list{grid-template-columns:1fr!important}.work-check{font-size:15px}}
 
+
+/* Live-URL bubbles: one box per business, so a client's whole surface area
+   reads as a unit instead of a flat list of look-alike rows. */
+.bubble-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:4px 0 14px}
+.bubble{background:linear-gradient(135deg,#25506f,#1e4460);border:1px solid #5f93b4;border-top:4px solid var(--ok);border-radius:10px;padding:14px 16px;min-width:0}
+.bubble-warn{border-top-color:var(--warn)}
+.bubble-bad{border-top-color:var(--bad)}
+.bubble-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.bubble-head h3{margin:0;font:750 15px system-ui;color:var(--cyan);letter-spacing:.02em}
+.bubble-count{margin-left:auto;font-size:12px;color:#b4d8ee;white-space:nowrap}
+.bubble-bad .bubble-count,.bubble-warn .bubble-count{color:var(--warn)}
+.bubble-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.bubble-list li{display:flex;align-items:center;gap:9px;min-width:0;font-size:14px;line-height:1.45}
+.bubble-list li a{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.bubble-list .dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--ok)}
+.bubble-list .dot.bad{background:var(--bad)}
+.bubble-meta{flex:0 0 auto;font-size:12px;color:#b0d3ee;font-variant-numeric:tabular-nums}
+.bubble-list .bad-row a{color:var(--bad)}
+@media(max-width:760px){.bubble-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -367,12 +386,43 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
 
     pages: function (b, d) {
       var all = (d.pages || []).concat(d.backends || []);
-      table(b, ['', 'Page', 'Code', 'ms'], all, [
-        function (p) { return el('span', p.ok ? 'ok' : 'bad', p.ok ? 'UP' : 'DOWN'); },
-        function (p) { return link(p.label, p.url); },
-        function (p) { return p.http_status == null ? (p.error || '—') : p.http_status; },
-        function (p) { return p.ms; }
-      ]);
+      var bubbles = d.bubbles || [];
+      // Grouped into one box per business so a client's whole surface reads as
+      // a unit. Older payloads carry no bubbles[] — fall back to the flat
+      // table rather than rendering an empty section.
+      if (!bubbles.length) {
+        table(b, ['', 'Page', 'Code', 'ms'], all, [
+          function (p) { return el('span', p.ok ? 'ok' : 'bad', p.ok ? 'UP' : 'DOWN'); },
+          function (p) { return link(p.label, p.url); },
+          function (p) { return p.http_status == null ? (p.error || '—') : p.http_status; },
+          function (p) { return p.ms; }
+        ]);
+        b.appendChild(el('p', 'muted', 'Checked ' + when(d.checked_at)));
+        return;
+      }
+      var wrap = el('div', 'bubble-grid');
+      bubbles.forEach(function (g) {
+        var card = el('section', 'bubble' + (g.critical_down ? ' bubble-bad' : (g.down ? ' bubble-warn' : '')));
+        var head = el('div', 'bubble-head');
+        head.appendChild(el('h3', null, g.label));
+        head.appendChild(el('span', 'bubble-count', g.down
+          ? (g.down + ' of ' + g.items.length + ' down')
+          : (g.items.length + (g.items.length === 1 ? ' link' : ' links'))));
+        card.appendChild(head);
+        var list = el('ul', 'bubble-list');
+        g.items.forEach(function (p) {
+          var li = el('li', p.ok ? null : 'bad-row');
+          li.appendChild(el('span', p.ok ? 'dot ok' : 'dot bad', ''));
+          li.appendChild(link(p.label, p.url));
+          var meta = p.http_status == null ? (p.error || '—') : String(p.http_status);
+          if (p.kind === 'backend') meta = 'API · ' + meta;
+          li.appendChild(el('span', 'bubble-meta', meta));
+          list.appendChild(li);
+        });
+        card.appendChild(list);
+        wrap.appendChild(card);
+      });
+      b.appendChild(wrap);
       b.appendChild(el('p', 'muted', 'Checked ' + when(d.checked_at)));
     },
 

@@ -580,6 +580,18 @@
   #mic.listening { color: var(--red); border-color: var(--red); animation: micpulse 1.1s infinite; }
   @keyframes micpulse { 0%,100% { box-shadow: 0 0 4px rgba(75,255,168,.4); } 50% { box-shadow: 0 0 16px rgba(75,255,168,.7); } }
   #tts.off { color: var(--muted); }
+  .barbtn.gold { color: var(--gold); border-color: rgba(255,196,46,.55); }
+  .barbtn.gold:hover:not(:disabled) { border-color: var(--gold); box-shadow: 0 0 12px rgba(255,196,46,.35); }
+  #micDone[hidden] { display: none; }
+  /* Live proof the phone is actually hearing something. A mic that glows while
+     the page receives silence is the failure Chief hit — now it is visible. */
+  #voiceMeter { display: none; align-items: center; gap: 8px; padding: 2px 4px 4px; }
+  #voiceMeter.on { display: flex; }
+  #voiceHint { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  #voiceMeter.manual #voiceHint { color: var(--gold); white-space: normal; }
+  #voiceMeter .vlevel { flex: 1; height: 4px; border-radius: 3px; background: rgba(53,255,157,.12); overflow: hidden; }
+  #voiceLevelFill { display: block; height: 100%; width: 0; background: var(--arc); transition: width .09s linear; }
+  #voiceMeter.manual .vlevel { display: none; }
 
   /* ===== Active LLM readout ===== */
   #llmStatus {
@@ -687,6 +699,8 @@
     #input { font-size: 16px; padding: 10px 6px; }
     .barbtn { min-height: 44px; min-width: 44px; padding: 0 10px; }
     #mic, #tts { font-size: 18px; padding: 0 8px; }
+    #micDone { font-size: 12px; padding: 0 10px; }
+    #voiceHint { font-size: 11px; }
     #send { padding: 0 12px; }
   }
 </style>
@@ -866,9 +880,14 @@
     <span id="activeLlm">No LLM active</span>
     <span id="activeBrain">FGA Ops Brain // Obsidian ready</span>
   </div>
+  <div id="voiceMeter" aria-live="polite">
+    <span id="voiceHint">Listening — just talk…</span>
+    <span class="vlevel"><i id="voiceLevelFill"></i></span>
+  </div>
   <form id="bar">
     <textarea id="input" rows="1" placeholder="Talk to Cortana…"></textarea>
     <button type="button" class="barbtn" id="mic" title="Voice input">🎙</button>
+    <button type="button" class="barbtn gold" id="micDone" title="Send what you just said" hidden>DONE</button>
     <button type="button" class="barbtn" id="tts" title="Toggle spoken replies">🔊</button>
     <button type="submit" class="barbtn" id="send">SEND</button>
   </form>
@@ -876,7 +895,8 @@
 
 <script src="remote-config.js?v=20260715-corelink"></script>
 <script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20260907-relogin-1"></script>
+<script src="auth-gate.js?v=20260928-reprompt-dock"></script>
+<script src="voice-capture.js?v=20260928-mobile-mic"></script>
 <script>
 function lsGet(key, legacyKey) {
   const v = localStorage.getItem(key);
@@ -943,6 +963,12 @@ function lsGet(key, legacyKey) {
     coreButton.classList.toggle('online', !!online);
     coreButton.textContent = online ? '● Core Live' : '◈ Core Link';
     coreButton.title = online ? 'Private Cortana core connected' : 'Connect the private Cortana core';
+    /* Make the way back in obvious while the core is down. Before this, a failed
+       connect left "⚙ Devices" as the only visible control and the re-login
+       buried inside it. */
+    if (window.CortanaDeviceManager && window.CortanaDeviceManager.setConnected) {
+      window.CortanaDeviceManager.setConnected(!!online);
+    }
   };
   const loadCaptures = () => {
     try { return JSON.parse(localStorage.getItem(CAPTURE_KEY) || '[]'); } catch (_) { return []; }
@@ -1190,12 +1216,18 @@ function lsGet(key, legacyKey) {
           coreLinkOnline();
           addMsg('Private core connected. Live voice, vault, memory, calendar, web, and tools are online.', 'system');
         } else {
-          addMsg('Private core is unreachable right now. Public display mode remains active.', 'system');
+          addMsg('Private core is unreachable right now. Public display mode remains active — tap ⟳ Re-prompt (bottom left) to log in again.', 'system');
         }
       } finally {
         coreButtonBusy = false;
       }
     });
+  }
+  /* Mount the ⚙ Devices / ⟳ Re-prompt dock now, not only if the login gate
+     happens to come up during boot: the session this page holds can die at any
+     time, and when it does the way back in has to already be on screen. */
+  if (remoteCore && window.CortanaAuth && window.CortanaAuth.mountDock) {
+    try { window.CortanaAuth.mountDock(); } catch (_) {}
   }
   setCoreState(false);
   /* Fresh network verification on every load — "Core Live" must never be
@@ -2882,13 +2914,18 @@ const micBtn = document.getElementById('mic');
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);  // iPadOS lies about being a Mac
+const IS_PHONE = IS_IOS || /Android|Mobile|Silk|BlackBerry|Opera Mini/i.test(navigator.userAgent);
 const HAS_RECORDER = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 /* Safari on iOS ships webkitSpeechRecognition but ignores `continuous`, ends
    the session after a single phrase, and refuses to restart outside a user
    gesture — a hands-free conversation dies after one sentence. So the phone
    records real audio and the core transcribes it (/api/stt), giving mobile the
-   same open-mic loop the laptop gets free from the browser recognizer. */
-const USE_SERVER_STT = HAS_RECORDER && (!SR || IS_IOS);
+   same open-mic loop the laptop gets free from the browser recognizer.
+   Android Chrome has the same `continuous` gap and its own restart-without-a-
+   gesture refusals, so EVERY phone now takes the recorder path — one code path
+   to keep working on mobile instead of two, and the one with a DONE button
+   behind it when the phone's audio metering lets us down. */
+const USE_SERVER_STT = HAS_RECORDER && (!SR || IS_PHONE);
 if (!SR && !HAS_RECORDER) micBtn.style.display = 'none';
 let convoMode = false, recognition = null, micPaused = false;
 let silenceTimer = null, utteranceBuf = '', lastInterim = '';
@@ -2987,136 +3024,152 @@ function startRecognition() {
 
 /* ===== Recorder path — the phone's equivalent of continuous recognition =====
    One microphone grant per conversation; the stream stays open afterwards so
-   Chief never has to tap again. An analyser watches the level and cuts each
-   utterance at a real silence boundary — the same place the desktop recognizer
-   would have fired its final result — then posts that clip to the core for
-   transcription. The mic is stopped outright while Cortana thinks or speaks,
-   so she can never hear herself. */
-let micStream = null, recorder = null, recorderChunks = [], vadTimer = null;
-let vadAnalyser = null, vadData = null, noiseFloor = 0.004;
-let capturing = false, sendOnStop = false;
-let sawSpeech = false, voicedMs = 0, lastVoiceAt = 0, captureStartedAt = 0;
+   Chief never has to tap again. The capture loop itself lives in
+   voice-capture.js — extracted so it can be driven headlessly by
+   tests/voice-capture.test.mjs, because there is no working Chromium on the
+   build machine and a voice loop nobody can test is exactly how this failed
+   silently on his phone for weeks: the WebAudio analyser hung off the mic
+   stream came up permanently dead, so "you stopped talking" never fired, every
+   clip was recycled as "nobody talking", and NOTHING was ever posted to
+   /api/stt. The mic glowed. Cortana heard nothing.
 
-const VAD_TICK_MS = 60;
-const VAD_SILENCE_MS = 1400;        // quiet this long after speech = utterance over
-const VAD_MIN_SPEECH_MS = 250;      // a cough or a door is not a sentence
-const VAD_MAX_UTTERANCE_MS = 30000; // hard cap so one clip can't grow unbounded
-const VAD_MAX_IDLE_MS = 15000;      // nobody talking — recycle the buffer
+   Everything below is wiring. The module owns the recovery: detect an all-zero
+   analyser, rebuild the audio graph once, and if it is still dead stop relying
+   on it and end turns on a DONE tap instead. */
+const micDoneBtn = document.getElementById('micDone');
+const voiceMeter = document.getElementById('voiceMeter');
+const voiceHint = document.getElementById('voiceHint');
+const voiceLevelFill = document.getElementById('voiceLevelFill');
+const AUTO_HINT = 'Listening — just talk…';
+const MANUAL_HINT = 'Mic is on, but this phone won’t report audio levels — tap DONE when you finish speaking.';
+let voiceLevelPeak = 0;
 
-function recorderMime() {
-  const wanted = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2',
-                  'audio/mp4', 'audio/ogg;codecs=opus', 'audio/aac'];
-  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
-  for (const type of wanted) { if (MediaRecorder.isTypeSupported(type)) return type; }
-  return '';
+/* The analyser needs a context that is BOTH unlocked and, if that one turns out
+   to be silent, replaceable. First attempt reuses the shared playback context —
+   Chief's mic tap has already unlocked it, which is what iOS demands. The
+   repair attempt gets a brand-new one, because WebKit can hand back a dead
+   MediaStreamSource when the context predates the microphone stream. */
+let voiceCtxAttempts = 0, spareVoiceCtx = null;
+function voiceAnalyserContext() {
+  voiceCtxAttempts++;
+  if (voiceCtxAttempts === 1) return ensureAudioContext();
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (spareVoiceCtx && spareVoiceCtx.close) { try { spareVoiceCtx.close(); } catch (_) {} }
+  try { spareVoiceCtx = new Ctx(); } catch (_) { spareVoiceCtx = null; }
+  return spareVoiceCtx;
+}
+/* Never close the shared playback context: a closed AudioContext cannot be
+   resumed, so that would trade a broken mic for a mute Cortana. */
+function releaseVoiceContext(ctx) {
+  if (ctx && ctx !== audioCtx && ctx.close) { try { ctx.close(); } catch (_) {} }
+  if (ctx === spareVoiceCtx) spareVoiceCtx = null;
+  voiceCtxAttempts = 0;
 }
 
-async function ensureMicStream() {
-  if (micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live')) return micStream;
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
-  const ctx = ensureAudioContext();
-  if (ctx) {
-    vadAnalyser = ctx.createAnalyser();
-    vadAnalyser.fftSize = 1024;
-    vadAnalyser.smoothingTimeConstant = 0.4;
-    ctx.createMediaStreamSource(micStream).connect(vadAnalyser);
-    vadData = new Uint8Array(vadAnalyser.fftSize);
-    noiseFloor = 0.004;
-  }
-  return micStream;
+function showVoiceMeter(on) {
+  if (!voiceMeter) return;
+  voiceMeter.classList.toggle('on', !!on);
+  if (!on && voiceLevelFill) voiceLevelFill.style.width = '0';
+}
+function setVoiceManual(on) {
+  if (!voiceMeter) return;
+  voiceMeter.classList.toggle('manual', !!on);
+  if (voiceHint) voiceHint.textContent = on ? MANUAL_HINT : AUTO_HINT;
+}
+function showDone(on) {
+  if (!micDoneBtn) return;
+  if (on) micDoneBtn.removeAttribute('hidden');
+  else micDoneBtn.setAttribute('hidden', '');
 }
 
-function micLevel() {
-  if (!vadAnalyser || !vadData) return 0;
-  vadAnalyser.getByteTimeDomainData(vadData);
-  let sum = 0;
-  for (let i = 0; i < vadData.length; i++) { const v = (vadData[i] - 128) / 128; sum += v * v; }
-  return Math.sqrt(sum / vadData.length);
-}
-
-/* Stop the current clip. `send` decides whether it becomes a message or is
-   simply dropped and re-armed (silence, or a noise too short to be speech). */
-function endClip(send) {
-  sendOnStop = !!send;
-  clearInterval(vadTimer); vadTimer = null;
-  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (_) {} return; }
-  capturing = false;                                   // recorder already gone — re-arm directly
-  if (convoMode && !micPaused) startCapture();
-}
-
-function vadTick() {
-  const now = Date.now();
-  const level = micLevel();
-  const gate = Math.max(0.012, noiseFloor * 3.2);
-  if (level > gate) {
-    if (!sawSpeech && currentState === 'idle') setState('listening');
-    sawSpeech = true;
-    voicedMs += VAD_TICK_MS;
-    lastVoiceAt = now;
-  } else if (!sawSpeech) {
-    noiseFloor = noiseFloor * 0.94 + level * 0.06;   // learn the room only while it's quiet
-  }
-  if (sawSpeech && now - lastVoiceAt > VAD_SILENCE_MS) { endClip(voicedMs >= VAD_MIN_SPEECH_MS); return; }
-  if (sawSpeech && now - captureStartedAt > VAD_MAX_UTTERANCE_MS) { endClip(true); return; }
-  if (!sawSpeech && now - captureStartedAt > VAD_MAX_IDLE_MS) { endClip(false); }
-}
-
-function startCapture() {
-  if (capturing || !convoMode || micPaused || !USE_SERVER_STT) return;
-  capturing = true;
-  ensureMicStream().then(() => {
-    if (!convoMode || micPaused) { capturing = false; return; }
-    const mime = recorderMime();
-    try { recorder = mime ? new MediaRecorder(micStream, { mimeType: mime, audioBitsPerSecond: 32000 }) : new MediaRecorder(micStream); }
-    catch (_) { recorder = new MediaRecorder(micStream); }
-    recorderChunks = []; sendOnStop = false;
-    sawSpeech = false; voicedMs = 0; lastVoiceAt = 0; captureStartedAt = Date.now();
-    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recorderChunks.push(e.data); };
-    recorder.onstop = () => {
-      capturing = false;
-      const type = (recorder && recorder.mimeType) || mime || 'audio/webm';
-      const chunks = recorderChunks; recorderChunks = []; recorder = null;
-      const blob = chunks.length ? new Blob(chunks, { type }) : null;
-      if (sendOnStop && blob && blob.size > 1024) transcribe(blob);
-      else if (convoMode && !micPaused) startCapture();   // nothing worth sending — listen again
-    };
-    recorder.start();
-    micBtn.classList.add('listening');
-    if (currentState === 'idle') setState('listening');
-    clearInterval(vadTimer);
-    vadTimer = setInterval(vadTick, VAD_TICK_MS);
-  }).catch((err) => {
-    capturing = false;
+const voiceCapture = (USE_SERVER_STT && window.createVoiceCapture) ? window.createVoiceCapture({
+  mediaDevices: navigator.mediaDevices,
+  MediaRecorderCtor: window.MediaRecorder,
+  isTypeSupported: (window.MediaRecorder && MediaRecorder.isTypeSupported)
+    ? (type) => MediaRecorder.isTypeSupported(type) : null,
+  newAudioContext: voiceAnalyserContext,
+  releaseAudioContext: releaseVoiceContext,
+  isActive: () => convoMode && !micPaused,
+  onClip: (blob) => transcribe(blob),
+  onListening: (on) => {
+    micBtn.classList.toggle('listening', !!on);
+    showDone(!!on);                       // the escape hatch is offered on every turn
+    showVoiceMeter(!!on);
+    if (on && currentState === 'idle') setState('listening');
+  },
+  onSpeech: () => { if (currentState === 'idle') setState('listening'); },
+  onLevel: (level, trusted) => {
+    if (!voiceLevelFill || !trusted) return;
+    voiceLevelPeak = Math.max(level, voiceLevelPeak * 0.88);
+    voiceLevelFill.style.width = Math.min(100, Math.round(voiceLevelPeak * 900)) + '%';
+  },
+  onManualMode: () => {
+    /* Say it out loud once. A silent fallback is how the original failure hid:
+       everything looked fine and nothing was ever sent. */
+    setVoiceManual(true);
+    input.placeholder = 'Tap DONE when you finish speaking…';
+    addMsg('This phone isn’t reporting microphone levels, so I can’t hear when you stop talking. '
+         + 'Keep talking as long as you like and tap DONE to send it.', 'system');
+  },
+  onError: (err) => {
     convoMode = false;
     micBtn.classList.remove('listening');
-    const denied = /NotAllowed|Permission|Security/i.test(err.name + ' ' + err.message);
-    addMsg(denied
+    showDone(false); showVoiceMeter(false);
+    addMsg(err && err.denied
       ? '⚠ Mic access blocked — allow the microphone for this site, then tap 🎙 again.'
-      : '⚠ Mic unavailable — ' + err.message, 'system');
+      : '⚠ Mic unavailable — ' + ((err && err.message) || 'unknown error'), 'system');
     setState('idle');
-  });
-}
+  },
+}) : null;
 
+/* Manual mode is sticky for the page — a phone whose analyser was dead this
+   turn will not grow a working one next turn — so the hint has to be re-applied
+   on every re-arm. Without this the meter would quietly claim "just talk" while
+   nothing but a DONE tap could actually end the turn. */
+let voiceScriptWarned = false;
+function startCapture() {
+  if (!voiceCapture) {
+    /* voice-capture.js is the whole mobile mic. If a deploy ships without it, or
+       a phone serves a cached page that predates it, the mic button would do
+       nothing at all — say so rather than glowing silently, which is the exact
+       failure mode this work exists to end. */
+    if (USE_SERVER_STT && !voiceScriptWarned) {
+      voiceScriptWarned = true;
+      convoMode = false;
+      micBtn.classList.remove('listening');
+      addMsg('⚠ Voice capture didn’t load (voice-capture.js). Reload the page — if it keeps happening the deploy is missing that file.', 'system');
+      setState('idle');
+    }
+    return;
+  }
+  setVoiceManual(voiceCapture.isManual());
+  voiceCapture.start();
+}
 function stopCapture() {
-  clearInterval(vadTimer); vadTimer = null;
-  sendOnStop = false;
-  // Let onstop clear `capturing` — flipping it here would let a resumeMic()
-  // that lands first build a second recorder on the same stream.
-  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (_) {} return; }
-  recorder = null; recorderChunks = [];
-  capturing = false;
+  if (voiceCapture) voiceCapture.stop();
+  showDone(false); showVoiceMeter(false);
 }
-
 /* Fully release the microphone — only when Chief ends the conversation, so the
    in-conversation permission prompt happens exactly once. */
 function releaseMic() {
-  stopCapture();
-  if (micStream) { micStream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} }); micStream = null; }
-  vadAnalyser = null; vadData = null;
+  if (voiceCapture) voiceCapture.release();
+  showDone(false); showVoiceMeter(false);
+  voiceLevelPeak = 0;
 }
 
+if (micDoneBtn) {
+  micDoneBtn.addEventListener('click', () => {
+    if (!voiceCapture) return;
+    showDone(false);
+    if (!voiceCapture.finishTurn()) {
+      // Nothing was recording — most likely she is still answering the last turn.
+      addMsg('Nothing recorded yet — tap 🎙 to start listening.', 'system');
+    }
+  });
+}
+
+let emptyTranscriptWarned = false;
 async function transcribe(blob) {
   micPaused = true;                    // core has the floor until the answer lands
   setState('thinking');
@@ -3129,7 +3182,19 @@ async function transcribe(blob) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ('speech-to-text ' + res.status));
     const text = String(data.text || '').trim();
-    if (!text) { if (convoMode) { setState(restState()); resumeMic(); } else setState('idle'); return; }
+    if (!text) {
+      /* The clip reached the core and came back with no words. Say so once per
+         conversation: an empty transcript that silently re-arms the mic looks
+         exactly like the mic not working at all, which is how the mobile
+         failure stayed invisible. */
+      if (!emptyTranscriptWarned) {
+        emptyTranscriptWarned = true;
+        addMsg('I got the audio but couldn’t make out any words — try speaking a little closer to the phone.', 'system');
+      }
+      if (convoMode) { setState(restState()); resumeMic(); } else setState('idle');
+      return;
+    }
+    emptyTranscriptWarned = false;
     sendMessage(text);                 // → speak() → doneSpeaking() → resumeMic()
   } catch (err) {
     addMsg('⚠ Voice transcription failed — ' + err.message, 'system');
@@ -3151,7 +3216,9 @@ micBtn.addEventListener('click', () => {
     setState('idle');
   } else {
     convoMode = true;
-    input.placeholder = USE_SERVER_STT ? 'Listening — just talk…' : 'Talk to Cortana…';
+    input.placeholder = !USE_SERVER_STT ? 'Talk to Cortana…'
+      : (voiceCapture && voiceCapture.isManual()) ? 'Tap DONE when you finish speaking…'
+      : 'Listening — just talk…';
     if (USE_SERVER_STT) startCapture();
     else startRecognition();
   }

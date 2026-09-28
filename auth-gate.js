@@ -507,16 +507,65 @@
     if (deviceManagerBuilt) return;
     deviceManagerBuilt = true;
 
+    /* Two buttons, one row. The re-login used to live INSIDE the Devices panel,
+       which meant that when the core failed to connect the only thing on screen
+       was "⚙ Devices" — Chief had to guess that a device manager was where you
+       go to log back in. Logging back in is the common case and gets its own
+       one-tap control; the device list stays behind the gear. */
+    const dock = document.createElement('div');
+    dock.id = 'authDock';
+    Object.assign(dock.style, {
+      position: 'fixed', bottom: '14px', left: '14px', zIndex: 999998,
+      display: 'flex', gap: '6px', alignItems: 'center',
+    });
+    const chrome = {
+      background: 'rgba(3,10,9,.82)', color: 'rgba(160,220,210,.75)',
+      border: '1px solid rgba(120,231,208,.28)', borderRadius: '6px',
+      font: '11px sans-serif', padding: '6px 10px', cursor: 'pointer',
+    };
+
     const btn = document.createElement('button');
     btn.id = 'authDeviceBtn';
     btn.title = 'Manage CORE LINK devices';
     btn.textContent = '⚙ Devices';
-    Object.assign(btn.style, {
-      position: 'fixed', bottom: '14px', left: '14px', zIndex: 999998,
-      background: 'rgba(3,10,9,.82)', color: 'rgba(160,220,210,.75)',
-      border: '1px solid rgba(120,231,208,.28)', borderRadius: '6px',
-      font: '11px sans-serif', padding: '6px 10px', cursor: 'pointer',
-    });
+    Object.assign(btn.style, chrome);
+
+    /* The one-tap way back in. Same path as the panel's "Log in again" — throw
+       away the local token and the server session first, so a half-dead cookie
+       can't answer the next probe with "authenticated" and skip the gate. */
+    const repromptBtn = document.createElement('button');
+    repromptBtn.id = 'authRepromptBtn';
+    repromptBtn.title = 'Ask for Face ID / Touch ID again and reconnect the core';
+    repromptBtn.textContent = '⟳ Re-prompt';
+    Object.assign(repromptBtn.style, chrome, { color: 'rgba(255,214,109,.9)', borderColor: 'rgba(255,196,46,.45)' });
+    /* The dock floats over the left edge of the chat bar on a phone, so keep the
+       pair about as wide as the single "⚙ Devices" button it replaces: the gear
+       drops to its icon, and the re-prompt keeps its words because that is the
+       one Chief needs to find in a hurry. */
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 520px)').matches) {
+      btn.textContent = '⚙';
+      btn.style.padding = '6px 9px';
+    }
+
+    let repromptBusy = false;
+    repromptBtn.onclick = async () => {
+      if (repromptBusy) return;           // a second tap mid-handshake raced the first
+      repromptBusy = true;
+      const label = repromptBtn.textContent;
+      repromptBtn.textContent = '⟳ Logging in…';
+      repromptBtn.disabled = true;
+      panel.style.display = 'none';
+      try {
+        // index.html owns the CORE LINK button label and the switchboard, so let
+        // it drive when it's there; fall back to a bare re-unlock on localhost.
+        if (window.cortanaReconnectCore) await window.cortanaReconnectCore();
+        else await window.CortanaAuth.relogin();
+      } finally {
+        repromptBusy = false;
+        repromptBtn.disabled = false;
+        repromptBtn.textContent = label;
+      }
+    };
 
     const panel = document.createElement('div');
     panel.id = 'authDevicePanel';
@@ -609,10 +658,28 @@
       if (!open) refresh();
     };
 
-    document.body.appendChild(btn);
+    dock.appendChild(btn);
+    dock.appendChild(repromptBtn);
+    document.body.appendChild(dock);
     document.body.appendChild(panel);
-    window.CortanaDeviceManager = { refresh: () => { if (panel.style.display !== 'none') refresh(); } };
+    /* index.html calls setConnected() from setCoreState so the re-prompt reads
+       as the obvious next move while the core is down, and fades back to chrome
+       once it is live. */
+    window.CortanaDeviceManager = {
+      refresh: () => { if (panel.style.display !== 'none') refresh(); },
+      setConnected: (online) => {
+        repromptBtn.style.color = online ? 'rgba(160,220,210,.75)' : 'rgba(255,214,109,.95)';
+        repromptBtn.style.borderColor = online ? 'rgba(120,231,208,.28)' : 'rgba(255,196,46,.6)';
+        repromptBtn.style.background = online ? 'rgba(3,10,9,.82)' : 'rgba(40,26,2,.9)';
+        repromptBtn.title = online
+          ? 'Log in again — asks for Face ID / Touch ID and mints a fresh core session'
+          : 'Core not connected — tap to log in again';
+      },
+    };
   }
 
-  window.CortanaAuth = { ...window.CortanaAuth, api, apiPost };
+  /* index.html mounts the dock at boot. Without that, the login controls only
+     existed if the gate happened to come up during boot — so a session that
+     died mid-use left Chief with no visible way back in at all. */
+  window.CortanaAuth = { ...window.CortanaAuth, api, apiPost, mountDock: buildDeviceManager };
 })();

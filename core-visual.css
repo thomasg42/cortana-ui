@@ -106,7 +106,7 @@ body:not(.galaxy-view) #projBase {
 body:not(.galaxy-view) #cortanaAvatar {
   left: 44%;
   top: 10vh;
-  bottom: 10vh;
+  bottom: 6vh;
   width: min(36vw, 520px);
   opacity: 1;
   pointer-events: auto;
@@ -423,7 +423,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: 260px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 43%; width: min(35vw, 455px); top: 11vh; bottom: 13vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 43%; width: min(35vw, 455px); top: 11vh; bottom: 9vh; }
   body:not(.galaxy-view) #holoField { bottom: 158px; }
   body:not(.galaxy-view) .holoCard:nth-child(n + 3) { display: none; }
 }
@@ -446,7 +446,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   body:not(.galaxy-view) #opsToggle { left: auto; right: 12px; }
-  body:not(.galaxy-view) #cortanaAvatar { left: 41.5%; width: min(38vw, 380px); top: 12vh; bottom: 16vh; }
+  body:not(.galaxy-view) #cortanaAvatar { left: 41.5%; width: min(38vw, 380px); top: 12vh; bottom: 12vh; }
   #missionDoctrine { min-height: 138px; }
   #missionDoctrine strong { font-size: 11px; }
 }
@@ -481,7 +481,7 @@ body:not(.galaxy-view) #filePreview {
   }
 
   #missionDoctrine {
-    top: 98px;
+    top: 144px;
     right: 10px;
     width: calc(100vw - 20px);
     min-height: 0;
@@ -506,14 +506,14 @@ body:not(.galaxy-view) #filePreview {
   body:not(.galaxy-view) #cortanaAvatar {
     left: 48%;
     top: 12vh;
-    bottom: 25vh;
+    bottom: 20vh;
     width: min(62vw, 340px);
   }
 
   body:not(.galaxy-view) #cortanaAvatar::before { width: min(60vw, 330px); }
 
   body:not(.galaxy-view) #orbStatus {
-    top: 126px;
+    top: 180px;
     right: 10px;
     width: calc(100vw - 20px);
     padding: 5px 0 0;

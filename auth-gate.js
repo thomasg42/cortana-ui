@@ -5,17 +5,32 @@
   'use strict';
 
   const SESSION_TOKEN_KEY = 'cortana-core-session-token-v1';
+  /* The token lives in localStorage, not sessionStorage. sessionStorage dies
+     with the tab, so every new tab, every jump between Cortana and the Command
+     Center, and every iOS tab eviction asked Chief to unlock all over again —
+     even minutes after a good Face ID or email code. The server still expires
+     the session after 24h and a 401 clears it here. */
+  function stores() {
+    const out = [];
+    try { if (typeof localStorage !== 'undefined' && localStorage) out.push(localStorage); } catch (_) {}
+    try { if (typeof sessionStorage !== 'undefined' && sessionStorage) out.push(sessionStorage); } catch (_) {}
+    return out;
+  }
   let sessionToken = '';
-  try { sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || ''; } catch (_) {}
+  for (const st of stores()) {
+    try { sessionToken = st.getItem(SESSION_TOKEN_KEY) || ''; } catch (_) {}
+    if (sessionToken) break;
+  }
   function rememberSession(data) {
     const token = data && typeof data.sessionToken === 'string' ? data.sessionToken : '';
     if (!token) return;
     sessionToken = token;
-    try { sessionStorage.setItem(SESSION_TOKEN_KEY, token); } catch (_) {}
+    const [primary] = stores();
+    try { if (primary) primary.setItem(SESSION_TOKEN_KEY, token); } catch (_) {}
   }
   function clearRememberedSession() {
     sessionToken = '';
-    try { sessionStorage.removeItem(SESSION_TOKEN_KEY); } catch (_) {}
+    for (const st of stores()) { try { st.removeItem(SESSION_TOKEN_KEY); } catch (_) {} }
   }
   window.CortanaAuth = {
     getToken: () => sessionToken,
@@ -186,7 +201,7 @@
 
     const emailBtn = document.createElement('button');
     emailBtn.textContent = 'Email me a code instead';
-    emailBtn.onclick = () => renderOtpRequest(gate, refs, 'login');
+    emailBtn.onclick = () => { cancelAutoScan(); renderOtpRequest(gate, refs, 'login'); };
     refs.body.appendChild(emailBtn);
 
     // Without this the overlay is a dead end: a phone with no CORE LINK
@@ -301,18 +316,21 @@
      is exactly how the phone ended up never asking for anything. Fetch the
      challenge ahead of the tap and keep the handler synchronous up to the
      credentials.get() call. */
-  const LOGIN_OPTIONS_TTL_MS = 45000; // server challenge lives 60s; stay inside it
+  // The server keeps each challenge for 5 minutes (auth.js CHALLENGE_TTL_MS).
+  // The old 45s window meant anyone who took longer than that to tap fell onto
+  // the cold path, which iOS rejects — the tap "did nothing" and asked again.
+  const LOGIN_OPTIONS_TTL_MS = 4 * 60 * 1000;
   let warmLoginOptions = null;
   let warmLoginOptionsAt = 0;
-  let warmLoginInFlight = false;
+  let warmLoginInFlight = null;
   function prefetchLoginOptions(force) {
-    if (warmLoginInFlight) return;
-    if (!force && warmLoginOptions && Date.now() - warmLoginOptionsAt < LOGIN_OPTIONS_TTL_MS) return;
-    warmLoginInFlight = true;
-    apiPost('/api/auth/webauthn/login/options', {})
+    if (warmLoginInFlight) return warmLoginInFlight;
+    if (!force && warmLoginOptions && Date.now() - warmLoginOptionsAt < LOGIN_OPTIONS_TTL_MS) return Promise.resolve();
+    warmLoginInFlight = apiPost('/api/auth/webauthn/login/options', {})
       .then((optRes) => { warmLoginOptions = (optRes && optRes.options) || null; warmLoginOptionsAt = Date.now(); })
       .catch(() => { warmLoginOptions = null; })
-      .finally(() => { warmLoginInFlight = false; });
+      .finally(() => { warmLoginInFlight = null; });
+    return warmLoginInFlight;
   }
   // Single-use: a challenge may only be spent once, so hand it out and drop it.
   function takeWarmLoginOptions() {
@@ -324,6 +342,7 @@
   }
 
   function loginWithPasskey(gate, refs) {
+    cancelAutoScan();
     setMsg(refs, '', false);
     const warm = takeWarmLoginOptions();
     if (!warm) {
@@ -385,6 +404,54 @@
     }
   }
 
+  /* Start the Face ID / Touch ID scan the moment the gate opens, so Chief does
+     not have to find and tap a button first. Browsers that insist on a tap
+     (iOS Safari usually does) reject this straight away with NotAllowedError;
+     that is not a failure, so it falls back quietly to the one-tap button with
+     no error text. A real tap always aborts a pending automatic scan first, so
+     the two can never fight over the single WebAuthn slot. */
+  let autoScan = null; // { controller, superseded }
+  function cancelAutoScan() {
+    if (!autoScan) return;
+    autoScan.superseded = true;
+    try { autoScan.controller && autoScan.controller.abort(); } catch (_) {}
+    autoScan = null;
+  }
+  async function startAutoScan(gate, refs) {
+    // Kill switch: set window.CORTANA_AUTH_AUTOSCAN = false to go back to tap-only.
+    if (window.CORTANA_AUTH_AUTOSCAN === false) return;
+    if (!navigator.credentials || typeof navigator.credentials.get !== 'function') return;
+    cancelAutoScan();
+    const run = { controller: typeof AbortController === 'function' ? new AbortController() : null, superseded: false };
+    autoScan = run;
+    await prefetchLoginOptions(false);
+    if (run.superseded || gate.classList.contains('hidden')) return;
+    const warm = takeWarmLoginOptions();
+    if (!warm || !warm.allowCredentials || warm.allowCredentials.length === 0) {
+      if (warm) { warmLoginOptions = warm; warmLoginOptionsAt = Date.now(); } // not spent; keep it for the tap
+      return;
+    }
+    // The server holds several challenges at once, so warm a spare for a tap
+    // that may abort this scan — a cold tap is the one iOS refuses.
+    prefetchLoginOptions(true);
+    setMsg(refs, `Scanning ${platformLabel(detectDeviceType())}…`, true);
+    let cred;
+    try {
+      const req = { publicKey: credentialRequestOptionsFromJSON(warm) };
+      if (run.controller) req.signal = run.controller.signal;
+      cred = await navigator.credentials.get(req);
+    } catch (_) {
+      if (run.superseded) return;           // the tap took over; it owns the screen now
+      autoScan = null;
+      prefetchLoginOptions(true);           // that challenge is spent; warm the tap's
+      setMsg(refs, `Tap Unlock with ${platformLabel(detectDeviceType())} to scan.`, true);
+      return;
+    }
+    if (run.superseded) return;
+    autoScan = null;
+    completePasskeyLogin(gate, refs, Promise.resolve(cred));
+  }
+
   /* The old handler sent every failure to the enrollment screen, so a phone
      that already holds a passkey was told it had none and was pushed at an
      email code instead. WebAuthn deliberately returns the same NotAllowedError
@@ -430,6 +497,7 @@
     cbs.forEach((cb) => { try { cb(); } catch (_) { /* one waiter must not stop the rest */ } });
   }
   function finishAuth(gate) {
+    cancelAutoScan();
     if (gate) gate.classList.add('hidden');
     if (window.CortanaDeviceManager) window.CortanaDeviceManager.refresh();
     drainWaiters('authed');
@@ -442,6 +510,7 @@
   function dismissGate(gate) {
     // Hide, don't remove: the same overlay has to be re-openable later, both
     // for "Log in again" and for a session that dies mid-session.
+    cancelAutoScan();
     if (gate) gate.classList.add('hidden');
     drainWaiters('cancel');
   }
@@ -478,7 +547,20 @@
     const gate = openGate();
     setMsg(gateRefs, '', false);
     renderChoice(gate, gateRefs);
+    keepChallengeWarm(gate);
+    startAutoScan(gate, gateRefs);
   };
+
+  // While the gate is up, keep a live challenge in hand so a tap never has to
+  // wait on the network (which is what costs iOS the Face ID sheet).
+  let warmTimer = null;
+  function keepChallengeWarm(gate) {
+    if (warmTimer || typeof setInterval !== 'function') return;
+    warmTimer = setInterval(() => {
+      if (gate.classList.contains('hidden')) { clearInterval(warmTimer); warmTimer = null; return; }
+      prefetchLoginOptions(false);
+    }, 60 * 1000);
+  }
 
   /* The explicit way back in. Nothing else on the page could force a fresh
      unlock: the overlay only ever appeared during boot, so once a session died

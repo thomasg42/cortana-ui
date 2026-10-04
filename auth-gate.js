@@ -200,8 +200,8 @@
     refs.body.appendChild(biometricBtn);
 
     const emailBtn = document.createElement('button');
-    emailBtn.textContent = 'Email me a code instead';
-    emailBtn.onclick = () => { cancelAutoScan(); renderOtpRequest(gate, refs, 'login'); };
+    emailBtn.textContent = 'Email a code to trust this device';
+    emailBtn.onclick = () => { cancelAutoScan(); renderOtpRequest(gate, refs, 'enroll'); };
     refs.body.appendChild(emailBtn);
 
     // Without this the overlay is a dead end: a phone with no CORE LINK
@@ -220,7 +220,7 @@
     info.className = 'sub';
     info.style.margin = '0 0 10px';
     info.textContent = purpose === 'enroll'
-      ? 'This device has no passkey yet. We’ll email a code to prove it’s you, then register it.'
+      ? 'A code goes to your email. Enter it here, then scan Face ID, Touch ID, or this computer’s passcode. The scan plus that code is what trusts this device.'
       : 'A code will be emailed to you. Enter it below once it lands.';
     refs.body.appendChild(info);
 
@@ -305,7 +305,15 @@
       rememberSession(result);
       finishAuth(gate);
     } catch (err) {
-      setMsg(refs, err.message || 'Could not register this device.', false);
+      const reason = (err && err.message) || 'The scan did not finish.';
+      try {
+        const fallback = await apiPost('/api/auth/enroll/session', { enrollToken });
+        rememberSession(fallback);
+        setMsg(refs, `Signed in with the email code. This device is not saved yet: ${reason}`, false);
+        finishAuth(gate);
+      } catch (_) {
+        setMsg(refs, reason, false);
+      }
     }
   }
 

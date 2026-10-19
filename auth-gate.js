@@ -53,6 +53,47 @@
      that, which is how tapping Unlock could end up doing nothing at all. */
   let transportPinned = false;
   function apiUrl(path) { return activeBase + path; }
+
+  /* CORE LINK rides a Cloudflare Quick Tunnel. When it dies, the healthcheck
+     restarts it under a NEW hostname and pushes that to remote-config.js on
+     Pages — but a page opened before the rotation still holds the old one, so
+     the next "Log in again" went to a dead host and showed "Failed to fetch".
+     Re-read the published config (bypassing every cache) and follow it. */
+  const pageFetch = window.fetch.bind(window);
+  const CORE_URL_RE = /CORTANA_REMOTE_CORE_URL\s*=\s*['"](https:\/\/[^'"\s]+)['"]/;
+  const trimUrl = (u) => String(u || '').replace(/\/+$/, '');
+  let coreUrlInFlight = null;
+  function refreshCoreUrl() {
+    // localhost: same origin. On the hosted page an EMPTY URL is not "local" —
+    // it means remote-config.js failed to load (laptop opened with no Wi-Fi),
+    // so go fetch it instead of giving up for the life of the page.
+    if (['localhost', '127.0.0.1'].includes(location.hostname)) return Promise.resolve(null);
+    if (coreUrlInFlight) return coreUrlInFlight;
+    coreUrlInFlight = (async () => {
+      try {
+        const res = await pageFetch('remote-config.js?cb=' + Date.now(), { cache: 'no-store' });
+        if (!res || !res.ok || typeof res.text !== 'function') return null;
+        const m = CORE_URL_RE.exec(await res.text());
+        if (!m) return null;
+        const next = trimUrl(m[1]);
+        const prev = trimUrl(window.CORTANA_REMOTE_CORE_URL);
+        window.CORTANA_REMOTE_CORE_URL = next;
+        if (transportPinned) activeBase = next;
+        if (next !== prev) {
+          try { window.dispatchEvent(new CustomEvent('cortana:core-url-changed', { detail: { url: next, previous: prev } })); } catch (_) {}
+        }
+        return next;
+      } catch (_) {
+        return null;
+      } finally {
+        coreUrlInFlight = null;
+      }
+    })();
+    return coreUrlInFlight;
+  }
+  // A network-level failure (TypeError "Failed to fetch"/"Load failed"), as
+  // opposed to an HTTP error the core actually answered with.
+  const isNetworkError = (err) => !!err && (err.name === 'TypeError' || /failed to fetch|load failed|network/i.test(String(err.message)));
   function applyTransport(opts) {
     const base = opts && typeof opts.base === 'string' ? opts.base : '';
     if (base) {
@@ -124,7 +165,21 @@
   async function api(path, opts) {
     const headers = new Headers((opts && opts.headers) || {});
     if (sessionToken) headers.set('Authorization', `Bearer ${sessionToken}`);
-    const res = await activeFetch(apiUrl(path), Object.assign({ credentials: 'include' }, opts, { headers }));
+    const send = () => activeFetch(apiUrl(path), Object.assign({ credentials: 'include' }, opts, { headers }));
+    let res;
+    try {
+      res = await send();
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+      if (!transportPinned) throw new Error('Cortana core is unreachable — check Wi-Fi, then tap ⟳ Re-prompt.');
+      // The tunnel may have rotated under this page: follow it and retry once.
+      const before = activeBase;
+      await refreshCoreUrl();
+      if (activeBase === before) {
+        throw new Error('Cortana core is unreachable — the CORE LINK tunnel may be restarting. Try again in a minute.');
+      }
+      res = await send();
+    }
     let data = {};
     try { data = await res.json(); } catch (_) { /* no body */ }
     if (res.status === 401 && sessionToken) clearRememberedSession();
@@ -200,8 +255,8 @@
     refs.body.appendChild(biometricBtn);
 
     const emailBtn = document.createElement('button');
-    emailBtn.textContent = 'Email a code to trust this device';
-    emailBtn.onclick = () => { cancelAutoScan(); renderOtpRequest(gate, refs, 'enroll'); };
+    emailBtn.textContent = 'Email me a code instead';
+    emailBtn.onclick = () => { cancelAutoScan(); renderOtpRequest(gate, refs, 'login'); };
     refs.body.appendChild(emailBtn);
 
     // Without this the overlay is a dead end: a phone with no CORE LINK
@@ -220,7 +275,7 @@
     info.className = 'sub';
     info.style.margin = '0 0 10px';
     info.textContent = purpose === 'enroll'
-      ? 'A code goes to your email. Enter it here, then scan Face ID, Touch ID, or this computer’s passcode. The scan plus that code is what trusts this device.'
+      ? 'This device has no passkey yet. We’ll email a code to prove it’s you, then register it.'
       : 'A code will be emailed to you. Enter it below once it lands.';
     refs.body.appendChild(info);
 
@@ -305,15 +360,7 @@
       rememberSession(result);
       finishAuth(gate);
     } catch (err) {
-      const reason = (err && err.message) || 'The scan did not finish.';
-      try {
-        const fallback = await apiPost('/api/auth/enroll/session', { enrollToken });
-        rememberSession(fallback);
-        setMsg(refs, `Signed in with the email code. This device is not saved yet: ${reason}`, false);
-        finishAuth(gate);
-      } catch (_) {
-        setMsg(refs, reason, false);
-      }
+      setMsg(refs, err.message || 'Could not register this device.', false);
     }
   }
 
@@ -579,14 +626,17 @@
     applyTransport(opts);
     return new Promise((resolve) => {
       clearRememberedSession();
+      // Always log in against the CURRENT tunnel, not the one this page loaded with.
+      refreshCoreUrl().then(() => {
       // Drop the server-side session too, so a half-dead cookie can't answer
       // the next probe with "authenticated" and skip the gate all over again.
       apiPost('/api/auth/logout').catch(() => {}).then(() => {
         clearRememberedSession();
         window.initAuthGate(
           () => resolve(true),
-          Object.assign({}, opts, { force: true, onCancel: () => resolve(false) }),
+          Object.assign({}, opts, transportPinned ? { base: activeBase } : {}, { force: true, onCancel: () => resolve(false) }),
         );
+      });
       });
     });
   };
@@ -771,5 +821,5 @@
   /* index.html mounts the dock at boot. Without that, the login controls only
      existed if the gate happened to come up during boot — so a session that
      died mid-use left Chief with no visible way back in at all. */
-  window.CortanaAuth = { ...window.CortanaAuth, api, apiPost, mountDock: buildDeviceManager };
+  window.CortanaAuth = { ...window.CortanaAuth, api, apiPost, mountDock: buildDeviceManager, refreshCoreUrl, isNetworkError };
 })();

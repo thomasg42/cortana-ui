@@ -894,8 +894,8 @@
 </div>
 
 <script src="remote-config.js?v=20260715-corelink"></script>
-<script src="graph-data.js?v=20260803-outline-v1"></script>
-<script src="auth-gate.js?v=20261002-autoscan"></script>
+<script src="graph-data.js?v=20261016-halo-vault"></script>
+<script src="auth-gate.js?v=20261019-offline-boot"></script>
 <script src="voice-capture.js?v=20260928-mobile-mic"></script>
 <script>
 function lsGet(key, legacyKey) {
@@ -941,7 +941,10 @@ function lsGet(key, legacyKey) {
     if (token) headers.set('Authorization', `Bearer ${token}`);
     return headers;
   }
-  const remoteCore = String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
+  /* Read live, never cached in a const: the Quick Tunnel hostname rotates and
+     auth-gate.js re-reads remote-config.js to follow it, so every call has to
+     pick up the current value. A const here is how re-login hit a dead host. */
+  const coreUrl = () => String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
   const CONNECTED_KEY = 'cortana-core-connected-v1';
   const CAPTURE_KEY = 'cortana-display-captures-v1';
   const coreButton = document.getElementById('coreConnect');
@@ -1011,8 +1014,16 @@ function lsGet(key, legacyKey) {
      the server has already dropped can only ever disconnect, never log back
      in, which is how tapping it just logged Chief out. */
   async function probeCoreAuth() {
+    const first = await probeCoreAuthOnce();
+    if (first.reachable || !window.CortanaAuth || !window.CortanaAuth.refreshCoreUrl) return first;
+    // Unreachable may just mean the tunnel moved since this page loaded.
+    const before = coreUrl();
+    await window.CortanaAuth.refreshCoreUrl();
+    return coreUrl() !== before ? probeCoreAuthOnce() : first;
+  }
+  async function probeCoreAuthOnce() {
     try {
-      const response = await fetchWithTimeout(remoteCore + '/api/remote/status', {
+      const response = await fetchWithTimeout(coreUrl() + '/api/remote/status', {
         headers: remoteHeaders(),
         credentials: 'include',
       }, CORE_PROBE_MS);
@@ -1029,7 +1040,11 @@ function lsGet(key, legacyKey) {
      overlay is effectively still permanent. Tapping CORE LINK clears it. */
   let coreLinkDeclined = false;
   async function ensureRemoteSession() {
-    if (!remoteCore) return false;
+    // Booted offline, or the cached remote-config.js was missing: fetch it fresh.
+    if (!coreUrl() && window.CortanaAuth && window.CortanaAuth.refreshCoreUrl) {
+      await window.CortanaAuth.refreshCoreUrl();
+    }
+    if (!coreUrl()) return false;
     if (isConnected()) return true;
     if (coreLinkDeclined) return false;
     if (connectPromise) return connectPromise;
@@ -1045,7 +1060,7 @@ function lsGet(key, legacyKey) {
           const ok = await new Promise((resolve) => {
             window.initAuthGate(() => resolve(true), {
               fetchImpl: realFetch,
-              base: remoteCore,
+              base: coreUrl(),
               // Declining leaves the core locked and drops to the snapshot,
               // rather than stranding the page under an overlay it can't close.
               onCancel: () => { coreLinkDeclined = true; resolve(false); },
@@ -1135,13 +1150,13 @@ function lsGet(key, legacyKey) {
   window.fetch = async function (url, opts) {
     const u = typeof url === 'string' ? url : (url && url.url) || '';
     if (!u.startsWith('/api/')) return realFetch(url, opts);
-    if (!remoteCore) return staticFetch(u, opts);
+    if (!coreUrl()) return staticFetch(u, opts);
 
     const connected = await ensureRemoteSession();
     if (!connected) return staticFetch(u, opts);
     try {
       const headers = remoteHeaders((opts && opts.headers) || {});
-      const response = await realFetch(remoteCore + u, { ...(opts || {}), headers, credentials: 'include' });
+      const response = await realFetch(coreUrl() + u, { ...(opts || {}), headers, credentials: 'include' });
       /* A 401/403 means the core dropped this session under us — expired,
          revoked, or the server restarted. Nothing used to notice: liveVerified
          stayed true, so ensureRemoteSession() short-circuited on every later
@@ -1173,10 +1188,10 @@ function lsGet(key, legacyKey) {
      answer "authenticated" and skip the gate. Wired to the Devices panel's
      "Log in again" (auth-gate.js) and reusable from the console. */
   window.cortanaReconnectCore = async function cortanaReconnectCore() {
-    if (!remoteCore) return false;
+    if (!coreUrl()) return false;
     coreLinkDeclined = false;
     if (!window.CortanaAuth || !window.CortanaAuth.relogin) return ensureRemoteSession();
-    const ok = await window.CortanaAuth.relogin({ fetchImpl: realFetch, base: remoteCore });
+    const ok = await window.CortanaAuth.relogin({ fetchImpl: realFetch, base: coreUrl() });
     setCoreState(!!ok);
     if (!ok) return false;
     window.dispatchEvent(new CustomEvent('cortana:remote-connected'));
@@ -1226,15 +1241,53 @@ function lsGet(key, legacyKey) {
   /* Mount the ⚙ Devices / ⟳ Re-prompt dock now, not only if the login gate
      happens to come up during boot: the session this page holds can die at any
      time, and when it does the way back in has to already be on screen. */
-  if (remoteCore && window.CortanaAuth && window.CortanaAuth.mountDock) {
+  // Always mount in remote mode: an offline boot leaves coreUrl() blank, and
+  // that is exactly when the way back in must already be on screen.
+  if (window.CortanaAuth && window.CortanaAuth.mountDock) {
     try { window.CortanaAuth.mountDock(); } catch (_) {}
   }
   setCoreState(false);
   /* Fresh network verification on every load — "Core Live" must never be
      resurrected from a stale localStorage flag when the Core is unreachable.
-     Success dispatches cortana:remote-connected, which refreshes the exact
-     ready-model readout via buildSwitchboard(). */
-  ensureRemoteSession();
+     remote-config.js is loaded with a fixed ?v= tag, so after a refresh the
+     browser can hand back a cached copy naming a tunnel that died while the
+     laptop slept — re-read it with no-store before the first probe. */
+  const freshUrl = (window.CortanaAuth && window.CortanaAuth.refreshCoreUrl)
+    ? window.CortanaAuth.refreshCoreUrl().catch(() => null) : Promise.resolve();
+  freshUrl.then(() => ensureRemoteSession()).then((ok) => { if (ok) coreLinkOnline(); else autoReconnect(); });
+
+  /* Laptop opened with no Wi-Fi: the page boots static. When the network comes
+     back the Mac's tunnel restarts under a NEW hostname and takes a few minutes
+     (health-check every 180s + Pages deploy) to publish it. Keep following the
+     published URL until the core answers, then raise Touch ID once. */
+  let reconnectTimer = null;
+  function autoReconnect() {
+    if (reconnectTimer || isConnected()) return;
+    const started = Date.now();
+    const tick = async () => {
+      reconnectTimer = null;
+      if (isConnected() || coreLinkDeclined) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return; // 'online' re-arms
+      if (window.CortanaAuth && window.CortanaAuth.refreshCoreUrl) await window.CortanaAuth.refreshCoreUrl();
+      const probe = coreUrl() ? await probeCoreAuth() : { reachable: false };
+      if (probe.reachable) {
+        if (await ensureRemoteSession()) {
+          coreLinkOnline();
+          addMsg('Wi-Fi is back — private core reconnected.', 'system');
+        }
+        return;
+      }
+      if (Date.now() - started < 8 * 60 * 1000) reconnectTimer = setTimeout(tick, 20 * 1000);
+    };
+    reconnectTimer = setTimeout(tick, 1500);
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('online', () => {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    autoReconnect();
+  });
+  if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !isConnected()) autoReconnect();
+  });
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -3495,6 +3548,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 if (window.speechSynthesis) speechSynthesis.getVoices(); // warm voice list
 </script>
-<script src="galaxy.js?v=20260811-galaxy-toggle-offline"></script>
+<script src="galaxy.js?v=20261016-halo-vault"></script>
 </body>
 </html>

@@ -71,6 +71,13 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
 .bubble-meta{flex:0 0 auto;font-size:12px;color:#b0d3ee;font-variant-numeric:tabular-nums}
 .bubble-list .bad-row a{color:var(--bad)}
 @media(max-width:760px){.bubble-grid{grid-template-columns:1fr}}
+/* Revenue this month: the one number the whole board answers to. */
+.overview-tile.is-hero{grid-column:1/-1}
+.overview-tile.is-hero .overview-value{font-size:clamp(34px,4.4vw,54px)}
+.overview-tile.is-hero .overview-note{font-size:15px}
+.revenue-headline{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px}
+.revenue-headline strong{font:800 clamp(30px,4vw,44px)/1.1 system-ui;color:#fff1bc;letter-spacing:-.02em}
+.revenue-headline span{font-size:15px;color:#d6ecf7}
 </style>
 </head>
 <body>
@@ -102,7 +109,7 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
 </div></div>
 
 <script src="remote-config.js"></script>
-<script src="auth-gate.js?v=20261002-autoscan"></script>
+<script src="auth-gate.js?v=20261016-tunnel-follow"></script>
 <script>
 (function () {
   'use strict';
@@ -127,7 +134,10 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
   // Served by the local core → same origin. Served from GitHub Pages → the
   // CORE LINK tunnel, same resolution index.html uses.
   var isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-  var BASE = isLocal ? '' : String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, '');
+  // Read live: the Quick Tunnel hostname rotates and auth-gate.js follows it
+  // by re-reading remote-config.js. A value frozen at load is how a second
+  // re-login ended in "Failed to fetch".
+  function BASE() { return isLocal ? '' : String(window.CORTANA_REMOTE_CORE_URL || '').replace(/\/+$/, ''); }
   var realFetch = window.fetch.bind(window);
 
   function headers() {
@@ -143,12 +153,24 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     var opts = options || {};
     var controller = new AbortController();
     var timeout = setTimeout(function () { controller.abort(); }, 90000);
-    return realFetch(BASE + path, {
-      signal: controller.signal,
-      method: opts.method || 'GET',
-      headers: headers(),
-      credentials: 'include',
-      body: opts.body
+    function send() {
+      return realFetch(BASE() + path, {
+        signal: controller.signal,
+        method: opts.method || 'GET',
+        headers: headers(),
+        credentials: 'include',
+        body: opts.body
+      });
+    }
+    return send().catch(function (err) {
+      // Network failure, not an HTTP answer: the tunnel may have moved. Follow it once.
+      var auth = window.CortanaAuth;
+      if (isLocal || !auth || !auth.refreshCoreUrl || !auth.isNetworkError(err)) throw err;
+      var before = BASE();
+      return auth.refreshCoreUrl().then(function () {
+        if (BASE() === before) throw new Error('Cortana core unreachable — the CORE LINK tunnel may be restarting. Tap ⟳ Re-prompt in a minute.');
+        return send();
+      });
     }).then(function (res) {
       if (res.status === 401) { var e = new Error('Not authenticated. Connect CORE LINK.'); e.authRequired = true; throw e; }
       if (!res.ok) return res.json().catch(function () { return {}; }).then(function (d) { throw new Error(d.error || ('HTTP ' + res.status)); });
@@ -218,22 +240,22 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     wrap.appendChild(ring); var text = el('div'); text.appendChild(el('strong',null,label)); text.appendChild(el('small',null,detail)); wrap.appendChild(text); parent.appendChild(wrap);
   }
   function goalEditor(b,g) {
-    var details=el('details'); details.id='goalEditor'; details.appendChild(el('summary',null,'Adjust goals & record cash ↓'));
-    details.appendChild(el('p','muted','Record the total cash collected this month. This replaces the recorded total; it does not add a payment. Leave it blank if unknown.'));
+    var details=el('details'); details.id='goalEditor'; details.appendChild(el('summary',null,'Adjust goals ↓'));
+    details.appendChild(el('p','muted','Cash collected is computed from GMM invoices and JustUs hours, so there is nothing to type in. Set this month’s targets here.'));
     var form=el('form','goal-form');
     function field(key,label,type) {
       var lab=el('label',type==='text'?'full':'',label); var input=el('input'); input.type=type; input.name=key; input.value=g[key]==null?'':g[key];
-      if(type==='number'){input.min=key==='cash_collected_usd'?'0':'0.01';input.step='0.01';input.required=key!=='cash_collected_usd';}else{input.maxLength=500;}
+      if(type==='number'){input.min='0.01';input.step='0.01';input.required=true;}else{input.maxLength=500;}
       lab.appendChild(input);form.appendChild(lab); return input;
     }
-    var cg=field('cash_goal_usd','Monthly cash target','number'), mg=field('mrr_goal_usd','Monthly recurring revenue target','number'), cash=field('cash_collected_usd','Cash collected so far','number');
+    var cg=field('cash_goal_usd','Monthly cash target','number'), mg=field('mrr_goal_usd','Monthly recurring revenue target','number');
     var identity=field('identity','Identity reminder','text'), focus=field('focus_goal','What you are building toward','text');
     var save=el('button',null,'Save confirmed values');save.type='submit';form.appendChild(save);
     var discard=el('button',null,'Discard edits / refresh');discard.type='button';discard.onclick=function(){unsavedGoals=false;refresh(['money']).catch(function(){});};form.appendChild(discard);
     var status=el('span','full muted');status.setAttribute('role','status');form.appendChild(status);
     form.oninput=function(){unsavedGoals=true;};
     form.onsubmit=function(e){e.preventDefault();if(!form.reportValidity())return;save.disabled=true;status.textContent='Saving…';
-      api('/api/command-center/goals',{method:'POST',body:JSON.stringify({month:g.month,revision:g.revision,cash_goal_usd:Number(cg.value),mrr_goal_usd:Number(mg.value),cash_collected_usd:cash.value===''?null:Number(cash.value),identity:identity.value,focus_goal:focus.value})})
+      api('/api/command-center/goals',{method:'POST',body:JSON.stringify({month:g.month,revision:g.revision,cash_goal_usd:Number(cg.value),mrr_goal_usd:Number(mg.value),identity:identity.value,focus_goal:focus.value})})
       .then(function(result){if(!result.ok)throw new Error(result.error||'Save failed');unsavedGoals=false;status.textContent='Saved to the private Core.';return refresh(['money']);})
       .catch(function(e){status.textContent=e.message;}).finally(function(){save.disabled=false;});
     };
@@ -305,22 +327,25 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     },
 
     money: function (b, d) {
-      var m=d.mrr||{}, g=d.goals||{}, metrics=el('div','metrics');
-      metric(metrics,g.cash_collected_usd,g.cash_goal_usd,'Cash collected',money(g.cash_collected_usd)+' / '+money(g.cash_goal_usd));
+      var m=d.mrr||{}, g=d.goals||{}, cs=d.cash||null, rv=d.revenue||null, metrics=el('div','metrics');
+      var cashUsd=cs?cs.collected_usd:null, period=(cs&&cs.month)||g.month;
+      if(rv){var head=el('div','revenue-headline');head.appendChild(el('strong',null,money(rv.total_usd)+(rv.complete?'':' (floor)')));head.appendChild(el('span',null,'made this month · '+money(rv.cash_usd)+' cash collected + '+money(rv.recurring_usd)+' confirmed recurring'));b.appendChild(head);}
+      metric(metrics,cashUsd,g.cash_goal_usd,'Cash collected',money(cashUsd)+' / '+(g.cash_goal_usd==null?'no target set':money(g.cash_goal_usd)+(g.cash_goal_standing?' monthly target':'')));
       metric(metrics,m.confirmed_usd,m.goal_usd,'Confirmed MRR',money(m.confirmed_usd)+' / '+money(m.goal_usd));b.appendChild(metrics);
-      b.appendChild(el('p','muted',g.month ? 'Financial period: '+g.month+' · Cash and recurring revenue are separate measures.' : 'Monthly cash goals are not available from this Core yet.'));
-      var known=typeof g.cash_collected_usd==='number'&&typeof g.cash_goal_usd==='number';
+      b.appendChild(el('p','muted',period ? 'Financial period: '+period+' · Cash collected = GMM invoices filed this month + JustUs hours. Revenue = cash collected + confirmed recurring.' : 'Monthly cash goals are not available from this Core yet.'));
+      var cashKnown=typeof cashUsd==='number', goalKnown=typeof g.cash_goal_usd==='number', known=cashKnown&&goalKnown;
       var now=new Date(new Date().toLocaleString('en-US',{timeZone:'America/Denver'}));var totalDays=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(), remaining=totalDays-now.getDate()+1;
-      var gap=known?Math.max(0,g.cash_goal_usd-g.cash_collected_usd):null;
+      var gap=known?Math.max(0,g.cash_goal_usd-cashUsd):null;
       rows(b,[['Cash still needed',money(gap),known&&gap>0?'warn':''],['Required per day, including today',known?money(gap/remaining):'Not enough data'],['MRR gap (confirmed floor)',money(m.gap_usd),'warn'],['API spend this month',d.api_spend?money(d.api_spend.month):'—']]);
-      b.appendChild(el('p',known?(gap===0?'ok':'warn'):'warn',!known?'OUTLOOK UNKNOWN · Record actual cash before judging whether the month is on pace.':gap===0?'CASH TARGET REACHED · Based on your recorded month-to-date total.':'CASH TARGET NOT YET REACHED · Daily pace is a requirement, not a prediction.'));
-      if(g.confirmed_at)b.appendChild(el('p','muted','Cash total last confirmed '+new Date(g.confirmed_at).toLocaleString()+'. No automatic bank reconciliation.'));
+      b.appendChild(el('p',known?(gap===0?'ok':'warn'):'warn',!cs?'CASH FEED AWAITS CORE ACTIVATION · Restart the Core to load it.':!cashKnown?'CASH UNKNOWN · Neither earnings feed answered. Nothing is assumed.':!goalKnown?'NO CASH TARGET SET FOR '+period+' · Set one under Adjust goals to see the daily pace.':gap===0?(g.cash_goal_standing?'STANDING TARGET HIT · '+money(g.cash_goal_usd)+' collected this month. Time to set the next monthly target.':'CASH TARGET REACHED · Based on the GMM and JustUs feeds.'):'CASH TARGET NOT YET REACHED · Daily pace is a requirement, not a prediction.'));
+      if(cs&&typeof cs.manual_recorded_usd==='number')b.appendChild(el('p','muted','A hand-recorded total of '+money(cs.manual_recorded_usd)+(g.confirmed_at?' ('+new Date(g.confirmed_at).toLocaleDateString()+')':'')+' is no longer used. Cash now comes from the feeds below.'));
       if(m.warning)b.appendChild(el('p','warn',m.warning));
       if((m.unconfirmed||[]).length)b.appendChild(el('p','muted','Unconfirmed revenue: '+m.unconfirmed.map(function(x){return x.name;}).join(', ')));
       if(d.goals_error)b.appendChild(el('p','bad',d.goals_error));
       if(g.identity)b.appendChild(el('p','identity',g.identity));
       if(g.focus_goal)b.appendChild(el('p','muted',g.focus_goal));
       if(g.revision)goalEditor(b,g);
+      moneyMade(b,d);
     },
 
     inbox: function (b, d) {
@@ -564,7 +589,7 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
   function cardSummary(key,d) {
     if(!registryHealthy)return 'Registry unavailable · results cannot be trusted';
     if(!available(d))return d ? 'Source unavailable · expand for the reason' : 'Awaiting private Core';
-    if(key==='money')return money(d.mrr&&d.mrr.confirmed_usd)+' confirmed MRR · '+(d.goals&&d.goals.cash_collected_usd!=null?money(d.goals.cash_collected_usd)+' cash recorded':'cash not recorded');
+    if(key==='money'){if(!d.revenue)return money(d.mrr&&d.mrr.confirmed_usd)+' confirmed MRR · revenue feed awaits Core activation';var fl=d.revenue.complete?'':' (floor)';return money(d.revenue.total_usd)+fl+' made this month · '+money(d.revenue.cash_usd)+' cash · '+money(d.revenue.recurring_usd)+' recurring';}
     if(key==='projects'){var p=allProjects(d).filter(function(x){return x.category!=='priority';});return p.filter(function(x){return (x.state==='open'||x.state==='in_progress');}).length+' open · '+p.filter(function(x){return x.state==='idea';}).length+' income ideas · '+(d.blocked||[]).length+' blocked';}
     if(key==='pulse')return (d.current_block?d.current_block.block:'No scheduled block')+(d.next_block?' · Next '+d.next_block.time:'');
     if(key==='outreach'){var today=d.today||{},day=(d.last_7_days||[]).find(function(x){return x.date===today.date;});return day&&day.logged?today.calls+' calls · '+today.emails+' emails logged today':'No outreach recorded today';}
@@ -579,18 +604,20 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     return 'Expand to inspect';
   }
   function renderOverview() {
-    var m=currentSections.money, g=available(m)&&m.goals||{}, mr=available(m)&&m.mrr||{}, p=currentSections.projects, pulse=currentSections.pulse;
+    var m=currentSections.money, g=available(m)&&m.goals||{}, mr=available(m)&&m.mrr||{}, cs=available(m)&&m.cash||null, rv=available(m)&&m.revenue||null, p=currentSections.projects, pulse=currentSections.pulse;
     var items=available(p)?allProjects(p):[], blockers=available(p)?(p.blocked||[]).length:null;
     var unknown=Object.keys(currentSections).filter(function(k){return !available(currentSections[k])||currentSections[k].status==='degraded'||staleSections.has(k);}).length;
     var livePages=currentSections.pages, critical=available(livePages)?(livePages.down||[]).filter(function(x){return x.critical;}).length:0;
     var date=available(pulse)&&pulse.date?new Date(pulse.date+'T12:00:00'):null, days=date?new Date(date.getFullYear(),date.getMonth()+1,0).getDate()-date.getDate()+1:null;
+    var floor=function(x){return x&&x.complete===false?' (floor)':'';};
     var tiles=[
-      ['Cash collected',!available(m)?'Unknown':g.cash_collected_usd==null?'Not recorded':money(g.cash_collected_usd),g.cash_goal_usd?('Target '+money(g.cash_goal_usd)+' this month'):(available(m)?'Goal editor awaits Core activation':'Awaiting private Core'),'money','warn'],
+      ['Revenue this month',!rv?'Unknown':rv.total_usd==null?'—':money(rv.total_usd)+floor(rv),!rv?(available(m)?'Revenue feed awaits Core activation':'Awaiting private Core'):money(rv.cash_usd)+' cash collected + '+money(rv.recurring_usd)+' confirmed recurring'+(rv.complete?'':' · a feed is down, so this is a floor'),'money',rv&&rv.complete===false?'warn':'','is-hero'],
+      ['Cash collected',!cs?'Unknown':cs.collected_usd==null?'—':money(cs.collected_usd)+floor(cs),!cs?(available(m)?'Cash feed awaits Core activation':'Awaiting private Core'):'GMM invoices + JustUs hours'+(g.cash_goal_usd?' · target '+money(g.cash_goal_usd)+(g.cash_goal_standing?' every month':''):''),'money',cs&&cs.complete===false?'warn':''],
       ['Recurring revenue',mr.confirmed_usd==null?'—':money(mr.confirmed_usd),mr.goal_usd?('Confirmed floor / '+money(mr.goal_usd)+' goal'):'Confirmed MRR only','money',mr.gap_usd>0?'warn':''],
       ['Time remaining',days==null?'—':days+' days',date?date.toLocaleDateString('en-US',{month:'long',year:'numeric'})+' · includes today':'This month','pulse',''],
       ['Needs attention',blockers==null?'—':String(blockers+critical),blockers==null?'Awaiting project status':(blockers+' blocked'+(critical?' · '+critical+' critical outages':'')+(unknown?' · '+unknown+' sources need review':'')),critical?'pages':'projects',critical?'bad':blockers||unknown?'warn':'']
     ];
-    var box=$('overview');box.textContent='';tiles.forEach(function(t){var a=el('a','overview-tile');a.href='#section-'+t[3];a.dataset.tone=t[4];a.appendChild(el('div','overview-label',t[0]));a.appendChild(el('div','overview-value',t[1]));a.appendChild(el('div','overview-note',(staleSections.has(t[3])?'STALE · ':'')+t[2]));a.appendChild(el('span','overview-arrow','↓'));a.onclick=function(){openCard(t[3]);};box.appendChild(a);});
+    var box=$('overview');box.textContent='';tiles.forEach(function(t){var a=el('a','overview-tile'+(t[5]?' '+t[5]:''));a.href='#section-'+t[3];a.dataset.tone=t[4];a.appendChild(el('div','overview-label',t[0]));a.appendChild(el('div','overview-value',t[1]));a.appendChild(el('div','overview-note',(staleSections.has(t[3])?'STALE · ':'')+t[2]));a.appendChild(el('span','overview-arrow','↓'));a.onclick=function(){openCard(t[3]);};box.appendChild(a);});
     $('activeCount').textContent=available(p)?items.filter(function(x){return x.category!=='priority'&&(x.state==='open'||x.state==='in_progress');}).length:'—';
     $('ideaCount').textContent=available(p)?items.filter(function(x){return x.state==='idea';}).length:'—';
     var next=items.filter(function(x){return (x.state==='open'||x.state==='in_progress');}).sort(function(a,b){return (a.priority||999)-(b.priority||999);})[0];
@@ -655,6 +682,37 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     });
   }
 
+  /* Money made, read live from where it is recorded: GMM invoices the moment
+     the job app files them, JustUs pay the moment it is entered on the
+     timesheet. A source that fails shows its error — never a $0. */
+  function moneyMade(b, d) {
+    var e = d.earned, err = d.earned_error, m = d.mrr || {}, rv = d.revenue;
+    var box = el('div', 'money-made');
+    box.appendChild(el('h3', null, 'Where this month’s money came from' + (e && e.month ? ' · ' + e.month : '')));
+    if (!e) { box.appendChild(el('p', 'bad', 'Earnings feed unavailable' + (err ? ': ' + err : '.'))); b.appendChild(box); return; }
+    var gm = e.gmm || {}, js = e.justus || {};
+    var line = function (src) { return src.status === 'ok' ? '' : (src.status === 'unconfigured' ? 'not connected — ' : 'unreachable — ') + (src.error || ''); };
+    var plural = function (n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); };
+    var jsDetail = js.status !== 'ok' ? line(js) : money(js.month_usd) + ' · ' + plural(js.month_rows, 'job') +
+      (js.month_estimated_usd ? ' · ' + money(js.month_estimated_usd) + ' of it estimated (' + js.month_estimated_hours + ' h × ' + money(js.default_hourly_usd) + '/h)' : '');
+    var out = [];
+    if (rv) out.push(['Revenue this month', money(rv.total_usd) + (rv.complete ? '' : ' (floor)'), rv.complete ? 'ok' : 'warn']);
+    out.push(['Cash collected', e.month_total_usd == null ? '—' : money(e.month_total_usd) + (e.complete ? '' : ' (floor)'), e.complete ? '' : 'warn']);
+    out.push(['↳ Gold Mobile Mechanic — invoices filed', gm.status === 'ok' ? money(gm.month_usd) + ' · ' + plural(gm.month_count, 'invoice') : line(gm), gm.status === 'ok' ? '' : 'bad']);
+    out.push(['↳ JustUs Entertainment — hours worked', jsDetail, js.status === 'ok' ? '' : 'bad']);
+    if (js.status === 'ok' && js.month_pending_rows) out.push(['↳ JustUs rows with no hours or pay', plural(js.month_pending_rows, 'row') + ' — not counted', 'warn']);
+    out.push(['Confirmed recurring', money(m.confirmed_usd) + ((m.confirmed_sources || []).length ? ' · ' + m.confirmed_sources.map(function (s) { return s.name; }).join(', ') : '')]);
+    out.push(['All-time: GMM filed / JustUs', (gm.status === 'ok' ? money(gm.all_time_usd) : '—') + ' / ' + (js.status === 'ok' ? money(js.all_time_usd) + (js.all_time_estimated_usd ? ' (incl. ' + money(js.all_time_estimated_usd) + ' estimated)' : '') : '—')]);
+    rows(box, out);
+    if (gm.status === 'ok' && (gm.latest || []).length) {
+      box.appendChild(el('p', 'muted', 'Latest GMM invoices: ' + gm.latest.slice(0, 3).map(function (i) { return i.customer + ' ' + money(i.usd) + ' (' + when(i.at) + ')'; }).join(' · ')));
+    }
+    if (gm.note) box.appendChild(el('p', 'muted', gm.note));
+    (js.anomalies || []).forEach(function (a) { box.appendChild(el('p', 'warn', a)); });
+    if (js.sheet_url) { var a = el('a', null, 'Open the JustUs timesheet'); a.href = js.sheet_url; a.target = '_blank'; a.rel = 'noopener'; box.appendChild(a); }
+    b.appendChild(box);
+  }
+
   function refresh(sections) {
     if(unsavedGoals && (!sections || sections.includes('money'))) { $('stamp').textContent='Unsaved goals kept. Save them before refreshing this card.'; if(sections)return Promise.resolve(); }
     var q = '/api/command-center?refresh=1' + (sections ? '&sections=' + sections.join(',') : '');
@@ -675,7 +733,10 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
     });
   }
 
+  var booted = false;
   function boot() {
+    if (booted) { refresh(null).catch(function () {}); return; }   // a later unlock must not stack another poll
+    booted = true;
     $('connection').textContent = isLocal ? 'local core' : 'Private CORE LINK';
     $('refreshAll').onclick = function () { refresh(null).catch(function () {}); };
     refresh(null).catch(function () {});
@@ -689,8 +750,22 @@ header{background:#173654f5;border-color:#5685a7;height:80px;padding:14px 26px}h
   // same way index.html does it. On localhost its defaults (window.fetch +
   // relative paths) are correct; on the github.io deploy it needs the real
   // fetch and the tunnel base.
+  /* ⟳ Re-prompt / "Log in again" land here (auth-gate.js prefers this hook).
+     Log in against the current tunnel, then repaint every card so the whole
+     board — money, vault, pages — is current again, not just the session. */
+  window.cortanaReconnectCore = function () {
+    if (!window.CortanaAuth || !window.CortanaAuth.relogin) return Promise.resolve(false);
+    $('connection').textContent = 'Logging in…';
+    return window.CortanaAuth.relogin(isLocal ? {} : { fetchImpl: realFetch, base: BASE() }).then(function (ok) {
+      if (!ok) { $('connection').textContent = 'Not authenticated — tap ⟳ Re-prompt.'; return false; }
+      $('connection').textContent = isLocal ? 'local core' : 'Private CORE LINK';
+      if (!booted) { boot(); return true; }
+      return refresh(null).then(function () { return true; }, function () { return true; });
+    });
+  };
+
   if (window.initAuthGate) {
-    window.initAuthGate(boot, isLocal ? {} : { fetchImpl: realFetch, base: BASE });
+    window.initAuthGate(boot, isLocal ? {} : { fetchImpl: realFetch, base: BASE() });
   } else {
     boot();
   }

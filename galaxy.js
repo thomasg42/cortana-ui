@@ -53,7 +53,18 @@
     const x = Math.sin(seed * 999.91) * 43758.5453;
     return x - Math.floor(x);
   };
+  // Mulberry32 — the dust needs thousands of draws per seed, which the sin()
+  // hash above repeats on at that volume.
+  const prng = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   const cssHex = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
+  // The Ring's own dimensions: the vault is laid out ON it, so the layout and
+  // the geometry must agree.
+  const RING_R = 5.82, RING_BAND = .88;
   const clampDist = (d) => Math.max(MIN_DIST, Math.min(MAX_DIST, d));
 
   function applyFraming() {
@@ -360,7 +371,7 @@
     tilt.add(spinner);
     ring.add(tilt);
 
-    const R = 5.82, BAND = .88, HULL = .14, SEGMENTS = 768;
+    const R = RING_R, BAND = RING_BAND, HULL = .14, SEGMENTS = 768;
     const terrainTex = haloTerrainTexture();
     const hullTex = haloHullTexture();
     const terrain = new THREE.Mesh(
@@ -438,34 +449,108 @@
     return ring;
   }
 
-  function layoutGraph(data) {
-    const groupIndex = new Map(data.groups.map((g, i) => [g, i]));
-    const groupCounts = new Map();
-    const positions = new Array(data.nodes.length);
-    data.nodes.forEach((node) => {
-      const gi = groupIndex.get(node.group) ?? 0;
-      const nth = groupCounts.get(node.group) || 0;
-      groupCounts.set(node.group, nth + 1);
-      const totalGroups = Math.max(1, data.groups.length);
-      const gy = totalGroups === 1 ? 0 : 1 - (gi / (totalGroups - 1)) * 2;
-      const radial = Math.sqrt(Math.max(0, 1 - gy * gy));
-      const ga = gi * 2.399963229728653;
-      const center = new THREE.Vector3(
-        Math.cos(ga) * radial * 4.15,
-        gy * 3.15,
-        Math.sin(ga) * radial * 2.6
-      );
-      const seed = hash(node.path);
-      const a = nth * 2.39996 + rand(seed) * .8;
-      const localR = .22 + Math.sqrt(nth + 1) * .125 + rand(seed + 1) * .24;
-      const localDepth = (rand(seed + 2) - .5) * 1.7;
-      positions[node.id] = center.add(new THREE.Vector3(
-        Math.cos(a) * localR,
-        Math.sin(a) * localR * .72,
-        localDepth
-      ));
+  /* The whole vault lives ON the Halo. Each area of the vault (a top-level
+     folder, or a wiki/ section) owns one arc of the ring's inner surface, sized
+     by how much is in it. Notes are the stars, packed in rows across the band
+     and ordered by folder so neighbours on the ring are neighbours on disk.
+     Every other file — canvases, PDFs, images, scraped manuals — is dust on the
+     terrain of its area's arc. Coordinates are in the ring's spinner space, so
+     the stars ride the ring as it turns. */
+  const ringPoint = (theta, y, r) => new THREE.Vector3(Math.cos(theta) * r, y, Math.sin(theta) * r);
+
+  function ringArcs(data) {
+    const notes = new Map();
+    data.nodes.forEach((n) => notes.set(n.group, (notes.get(n.group) || 0) + 1));
+    const other = data.otherFiles || {};
+    const groups = data.groups.length ? data.groups : [...notes.keys()];
+    const weight = (g) => (notes.get(g) || 0) + Math.sqrt(other[g] || 0) * 1.5 + 3;
+    const total = groups.reduce((sum, g) => sum + weight(g), 0) || 1;
+    const gap = Math.min(.035, (Math.PI * 2 * .12) / Math.max(1, groups.length));
+    const usable = Math.PI * 2 - gap * groups.length;
+    const arcs = new Map();
+    let a = 0;
+    groups.forEach((g) => {
+      const span = usable * weight(g) / total;
+      arcs.set(g, { start: a + gap / 2, span, notes: notes.get(g) || 0, other: other[g] || 0 });
+      a += span + gap;
     });
+    return arcs;
+  }
+
+  function layoutGraph(data, arcs) {
+    const byGroup = new Map();
+    data.nodes.forEach((n) => { if (!byGroup.has(n.group)) byGroup.set(n.group, []); byGroup.get(n.group).push(n); });
+    const positions = new Array(data.nodes.length);
+    const H = RING_BAND * .76;
+    for (const [group, list] of byGroup) {
+      const arc = arcs.get(group);
+      if (!arc) continue;
+      list.sort((x, y) => String(x.folder || '').localeCompare(String(y.folder || ''))
+        || String(x.path).localeCompare(String(y.path)));
+      const arcLen = Math.max(.05, arc.span * RING_R);
+      const rows = Math.max(1, Math.min(7, Math.round(Math.sqrt(list.length * H / arcLen))));
+      const cols = Math.ceil(list.length / rows);
+      list.forEach((node, i) => {
+        const seed = hash(node.path);
+        const col = Math.floor(i / rows), row = i % rows;
+        const theta = arc.start + arc.span * (col + .5 + (rand(seed) - .5) * .35) / cols;
+        const y = -H / 2 + H * (row + .5 + (rand(seed + 1) - .5) * .4) / rows;
+        // Hover just above the terrain so the star reads as standing on it.
+        positions[node.id] = ringPoint(theta, y, RING_R - .07 - rand(seed + 2) * .07);
+      });
+    }
     return positions;
+  }
+
+  const DUST_MAX = 30000;
+  function buildDust(data, arcs, colorFor) {
+    const other = data.otherFiles || {};
+    const total = Object.values(other).reduce((sum, n) => sum + n, 0);
+    if (!total) return null;
+    const scale = Math.min(1, DUST_MAX / total);   // one grain per file up to the cap
+    const pos = [], col = [];
+    for (const [group, count] of Object.entries(other)) {
+      const arc = arcs.get(group);
+      if (!arc) continue;
+      const next = prng(hash(group));
+      const c = new THREE.Color(colorFor(group)).multiplyScalar(.6);
+      const grains = Math.max(1, Math.round(count * scale));
+      for (let i = 0; i < grains; i++) {
+        const theta = arc.start + arc.span * next();
+        const y = (next() - .5) * RING_BAND * .84;
+        const r = RING_R - .012 - next() * .035;
+        pos.push(Math.cos(theta) * r, y, Math.sin(theta) * r);
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const dust = new THREE.Points(geo, new THREE.PointsMaterial({
+      size: .03, map: spriteTexture(), vertexColors: true, transparent: true, opacity: .62,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    }));
+    dust.userData.grains = pos.length / 3;
+    return dust;
+  }
+
+  // One floating name per arc that is wide enough to carry it.
+  function arcLabel(text, count, color) {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 112;
+    const g = c.getContext('2d');
+    g.font = '600 46px "Segoe UI", -apple-system, sans-serif';
+    g.textAlign = 'center';
+    g.fillStyle = cssHex(color);
+    g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 10;
+    g.fillText(String(text).toUpperCase().slice(0, 18), 256, 54);
+    g.font = '400 30px "Segoe UI", -apple-system, sans-serif';
+    g.fillStyle = 'rgba(220,240,255,.82)';
+    g.fillText(count, 256, 98);
+    const tex = new THREE.CanvasTexture(c);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: .92 }));
+    sprite.scale.set(1.15, .25, 1);
+    return sprite;
   }
 
   function disposeGalaxy() {
@@ -502,11 +587,13 @@
   function buildGalaxy(data) {
     disposeGalaxy();
     graphData = data;
-    nodePositions = layoutGraph(data);
+    const arcs = ringArcs(data);
+    nodePositions = layoutGraph(data, arcs);
     galaxy = new THREE.Group();
     galaxy.visible = false;
 
     const groupMap = new Map(data.groups.map((g, i) => [g, COLORS[i % COLORS.length]]));
+    const colorFor = (g) => groupMap.get(g) ?? COLORS[0];
     const pos = [], colors = [];
     baseColors = [];
     for (const node of data.nodes) {
@@ -532,10 +619,21 @@
     });
     const linkGeo = new THREE.BufferGeometry();
     linkGeo.setAttribute('position', new THREE.Float32BufferAttribute(linkPos, 3));
-    linkLines = new THREE.LineSegments(linkGeo, new THREE.LineBasicMaterial({ color: 0x4bdf9a, transparent: true, opacity: .13, blending: THREE.AdditiveBlending, depthWrite: false }));
+    linkLines = new THREE.LineSegments(linkGeo, new THREE.LineBasicMaterial({ color: 0x4bdf9a, transparent: true, opacity: .1, blending: THREE.AdditiveBlending, depthWrite: false }));
 
     haloWorld = buildHaloWorld();
-    galaxy.add(starfield(), haloWorld, linkLines, points);
+    // Stars, links, dust and arc names all ride the spinner with the terrain.
+    const spinner = haloWorld.userData.spinner;
+    const dust = buildDust(data, arcs, colorFor);
+    if (dust) spinner.add(dust);
+    for (const [group, arc] of arcs) {
+      if (arc.span * RING_R < .9) continue;               // too narrow to carry a name
+      const label = arcLabel(group, `${arc.notes} notes${arc.other ? ` · ${arc.other.toLocaleString()} files` : ''}`, colorFor(group));
+      label.position.copy(ringPoint(arc.start + arc.span / 2, RING_BAND / 2 + .2, RING_R - .32));
+      spinner.add(label);
+    }
+    spinner.add(linkLines, points);
+    galaxy.add(starfield(), haloWorld);
     galaxy.rotation.x = -.08;
     scene.add(galaxy);
     raycaster = new THREE.Raycaster();
@@ -545,7 +643,11 @@
       acc[node.group] = (acc[node.group] || 0) + 1;
       return acc;
     }, {});
-    document.getElementById('galaxyMeta').textContent = `${data.noteCount} notes  ·  ${data.links.length} connections  ·  complete vault map  ·  private text stays local`;
+    const otherCount = Object.values(data.otherFiles || {}).reduce((sum, n) => sum + n, 0);
+    document.getElementById('galaxyMeta').textContent = `${data.noteCount.toLocaleString()} notes on the ring`
+      + (otherCount ? `  ·  ${otherCount.toLocaleString()} more files as dust` : '')
+      + `  ·  ${data.links.length.toLocaleString()} connections  ·  ${data.publicSnapshot ? 'public snapshot · private text stays local' : 'live vault'}`;
+    liveSignature = graphSignature(data);
     document.getElementById('galaxyLegend').innerHTML = '<button class="legendItem legendFolders" data-folders="1"><i style="--c:#ffc42e"></i>Folders</button>' + data.groups.map((g, i) => `<button class="legendItem" data-group="${escapeHtml(g)}"><i style="--c:${cssHex(COLORS[i % COLORS.length])}"></i>${escapeHtml(g)} <b>${counts[g] || 0}</b></button>`).join('');
     closeDrilldown();
   }
@@ -632,13 +734,27 @@
     }, 9000);
   }
 
+  /* Stars stand on the ring's INNER surface, so the camera has to come in from
+     inside the ring — framing from outside parks it behind the hull. Look from
+     toward the ring's centre, lifted along its axis on the side facing home. */
+  function ringFraming(localPoint, dist) {
+    const spinner = haloWorld && haloWorld.userData.spinner;
+    if (!spinner) return null;
+    galaxy.updateMatrixWorld(true);
+    const world = spinner.localToWorld(localPoint.clone());
+    const centre = spinner.localToWorld(new THREE.Vector3(0, localPoint.y, 0));
+    const axis = spinner.localToWorld(new THREE.Vector3(0, localPoint.y + 1, 0)).sub(centre).normalize();
+    if (axis.dot(HOME_DIR) < 0) axis.negate();
+    const inward = centre.clone().sub(world);
+    if (inward.lengthSq() < .25) return null;              // already at the hub: the home frame shows it best
+    return { world, offset: inward.normalize().multiplyScalar(dist * .82).add(axis.multiplyScalar(dist * .55)) };
+  }
+
   function flyToNode(node, cited = false) {
     if (!node || !nodePositions[node.id]) return;
     setView('galaxy');
-    const world = nodePositions[node.id].clone().applyEuler(galaxy.rotation);
-    const direction = world.clone().normalize();
-    if (direction.lengthSq() < .01) direction.set(0, 0, 1);
-    focusOn(world, direction.multiplyScalar(2.5).add(new THREE.Vector3(0, .25, 1.8)));
+    const frame = ringFraming(nodePositions[node.id], 2.6);
+    if (frame) focusOn(frame.world, frame.offset);
     highlight([node.id]);
     showSource(node, cited);
   }
@@ -782,11 +898,10 @@
     const center = new THREE.Vector3();
     nodeIds.forEach((id) => { if (nodePositions[id]) center.add(nodePositions[id]); });
     center.divideScalar(nodeIds.length);
-    const world = center.clone().applyEuler(galaxy.rotation);
-    const direction = world.clone().normalize();
-    if (direction.lengthSq() < .01) direction.set(0, 0, 1);
     const spread = nodeIds.length > 1 ? 2.15 + Math.sqrt(nodeIds.length) * .16 : 2.5;
-    focusOn(world, direction.multiplyScalar(spread).add(new THREE.Vector3(0, .25, 1.6)));
+    const frame = ringFraming(center, Math.min(spread, HOME_DIST - .8));
+    if (frame) focusOn(frame.world, frame.offset);
+    else goHome();                                          // spread round the whole ring
   }
 
   function zoomToTopic(group) {
@@ -1153,7 +1268,12 @@
   // Test seam: the folder view's real functions, so tests/folder-galaxy.test.mjs
   // drives the shipped code (including the shared panel's click routing)
   // rather than a copy of it.
-  window.cortanaGalaxyInternals = { handleDrilldownClick, openFolder, resolveFolderZoom, loadFolderTree };
+  window.cortanaGalaxyInternals = {
+    handleDrilldownClick, openFolder, resolveFolderZoom, loadFolderTree,
+    // The Halo layout (tests/halo-ring.test.mjs).
+    buildGalaxy, ringArcs, flyToNode, goHome, pollLiveVault: () => pollLiveVault(),
+    ring: () => ({ galaxy, points, haloWorld, nodePositions, focusAnchor, targetCamera, targetLook, RING_R, RING_BAND }),
+  };
 
   window.cortanaOpenFolder = (relPath) => openFolder(relPath);
   window.cortanaFolderQuery = (text) => {
@@ -1294,6 +1414,38 @@
   }
   window.cortanaRefreshGalaxy = () => refreshGalaxy();
 
+  /* Live vault. While the private core is connected, re-read the graph every
+     minute and rebuild the ring only when the set of notes or files actually
+     changed — a note written in Obsidian lands on the ring without a reload.
+     Never while Chief is zoomed in, browsing a folder or reading an outline,
+     and never in snapshot mode (an /api/ call there can raise the login gate). */
+  let liveSignature = '';
+  function graphSignature(data) {
+    const paths = (data.nodes || []).map((n) => n.path).join('\n');
+    const other = Object.entries(data.otherFiles || {}).sort().map(([g, n]) => `${g}=${n}`).join(',');
+    return `${(data.nodes || []).length}|${(data.links || []).length}|${hash(paths)}|${hash(other)}`;
+  }
+  const LIVE_POLL_MS = 60 * 1000;
+  async function pollLiveVault() {
+    if (window.CORTANA_STATIC_MODE === true || document.hidden || !galaxy) return;
+    if (focusAnchor || dragging || drilldownState || folderState) return;
+    try {
+      const res = await fetch('/api/graph');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.publicSnapshot || !Array.isArray(data.nodes) || !data.nodes.length) return;
+      if (graphSignature(data) === liveSignature) return;
+      const wasVisible = galaxy.visible;
+      const rotation = galaxy.rotation.clone();
+      const spin = haloWorld && haloWorld.userData.spinner ? haloWorld.userData.spinner.rotation.y : 0;
+      buildGalaxy(data);
+      galaxy.rotation.copy(rotation);
+      if (haloWorld && haloWorld.userData.spinner) haloWorld.userData.spinner.rotation.y = spin;
+      galaxy.visible = wasVisible;
+    } catch (_) { /* the next tick tries again */ }
+  }
+  setInterval(pollLiveVault, LIVE_POLL_MS);
+
   function bindControls() {
     window.addEventListener('mousemove', (e) => {
       if (!window.cortanaGalaxyActive) return;
@@ -1339,7 +1491,9 @@
 
   window.cortanaGalaxyTick = () => {
     if (!galaxy || !window.cortanaGalaxyActive) return;
-    if (haloWorld && haloWorld.userData.spinner) haloWorld.userData.spinner.rotation.y += .0006;
+    // The ring turns with the vault on it; it holds still while Chief is
+    // zoomed in or dragging, so a framed star never drifts out of shot.
+    if (haloWorld && haloWorld.userData.spinner && !focusAnchor && !dragging) haloWorld.userData.spinner.rotation.y += .0006;
     const idleFor = Date.now() - lastInteraction;
     if (!dragging && idleFor > 3500) galaxy.rotation.y += .00034;
     // Idle breathing only belongs to the home frame — once Thomas has zoomed
